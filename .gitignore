@@ -1,0 +1,14 @@
+build
+dist
+*/__pycache__
+*.pyc
+*.o
+# Intellij Idea files
+.idea
+*.iml
+venv
+release
+# Other
+elements.json
+src/*
+doc/*.png
