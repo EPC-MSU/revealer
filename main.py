@@ -1,11 +1,30 @@
 from tkinter import *
-from tkinter import ttk
+from tkinter import ttk, font
 
 import os
 import platform
 
 import socket
 import ifaddr
+import webbrowser as wb
+
+import xml.etree.ElementTree as ET
+import urllib.request
+
+
+def open_link(event):
+    tree = event.widget  # get the treeview widget
+    region = tree.identify_region(event.x, event.y)
+    col = tree.identify_column(event.x)
+    iid = tree.identify('item', event.x, event.y)
+    if region == 'cell' and col == '#3':
+        link = tree.item(iid)['values'][2]  # get the link from the selected row
+        tags = tree.item(iid)['tags'][0]
+        print(tags)
+        if tags == "local":
+            wb.open_new_tab(link)  # open the link in a browser tab
+        else:
+            print("Can't open this link.")
 
 
 # TODO: maybe we should check this theoretically
@@ -37,9 +56,18 @@ def ssdp_search():
     for i in my_tree.get_children():
         my_tree.delete(i)
 
+    my_tree.update()
+
+    button["state"] = "disabled"
+    button["text"] = "Searching..."
+    button.update()
+
     devices = set()
 
     adapters = ifaddr.get_adapters()
+
+    index = 1
+    device_number = 1
 
     for adapter in adapters:
         for ip in adapter.ips:
@@ -57,8 +85,6 @@ def ssdp_search():
             SOC.settimeout(2)
             SOC.sendto(MS.encode('utf-8'), ("239.255.255.250", 1900))
 
-            index = 1
-            device_n = 1
             # listen and capture returned responses
             try:
                 while True:
@@ -67,22 +93,50 @@ def ssdp_search():
                         devices.add(addr[0])
                         # text_box.config(state='normal')
                         data_dict = parse_ssdp_data(data.decode('utf-8'))
-                        my_tree.insert(parent='', index='1', iid=index, text=data_dict["server"], values=("", addr[0], str(device_n)))
-                        my_tree.insert(parent=str(index), index='end', iid=index+1, text=data_dict["version"], values=(data_dict["version"], data_dict["location"], data_dict["uuid"]))
-                        print(parse_ssdp_data(data.decode('utf-8')))
-                        index += 2
-                        device_n += 1
+                        xml_dict = parse_upnp_xml(data_dict["location"])
+                        # xml_dict = None
+                        if xml_dict is not None:
+                            my_tree.insert(parent='', index=str(device_number), iid=index, text="",
+                                           values=(str(device_number), data_dict["server"],
+                                                   "http://"+addr[0]+xml_dict["presentationURL"]))
+                            my_tree.item(index, tags="local")
+                            my_tree.insert(parent=str(index), index='end', iid=index + 1, text="",
+                                           values=("", "  Serial number: " + xml_dict["serialNumber"], ""))
+                            my_tree.insert(parent=str(index), index='end', iid=index + 2, text="",
+                                           values=("", "  Firmware version: " + data_dict["version"], ""))
+                            index += 3
+                        else:
+                            my_tree.insert(parent='', index=str(device_number), iid=index, text="",
+                                           values=(str(device_number), data_dict["server"], addr[0]))
+                            my_tree.item(index, tags="not_local")
+                            my_tree.insert(parent=str(index), index='end', iid=index + 1, text="",
+                                           values=("", "  Firmware version: " + data_dict["version"], ""))
+                        my_tree.update()
+                        # print(parse_ssdp_data(data.decode('utf-8')))
+
+                        # print(parse_upnp_xml(data_dict["location"]))
+
+                        index += 3
+                        device_number += 1
+
                         # text_box.config(state='disabled')
             except socket.timeout:
                 # print ('No more answers')
                 SOC.close()
                 pass
+
+    button["state"] = "normal"
+    button["text"] = "Search"
+    button.update()
+
     return
+
 
 SSDP_HEADER_HTTP = "http"
 SSDP_HEADER_SERVER = "server"
 SSDP_HEADER_LOCATION = "location"
 SSDP_HEADER_USN = "usn"
+
 
 def parse_ssdp_data(ssdp_data):
     ssdp_dict = {"server": "", "version": "", "location": "", "uuid": ""}
@@ -114,6 +168,36 @@ def parse_ssdp_data(ssdp_data):
     return ssdp_dict
 
 
+def parse_upnp_xml(url):
+    xml_dict = {}
+
+    try:
+        response = urllib.request.urlopen(url).read().decode('utf-8')
+        data = response.split('\r\n\r\n')  # we need to get rid of the headers
+        # print(data[len(data)-1])
+        tree = ET.fromstring(data[len(data)-1])
+
+        for child in tree:
+            tag_array = child.tag.split('}')
+            tag_name = tag_array[len(tag_array)-1]
+            xml_dict[tag_name] = child.text
+
+            # print(f'Tag: {child.tag}, text: {child.text}')
+
+            for grandchild in child:
+                tag_array = grandchild.tag.split('}')
+                tag_name = tag_array[len(tag_array) - 1]
+                xml_dict[tag_name] = grandchild.text
+
+                # print(f'Tag: {grandchild.tag}, text: {grandchild.text}')
+
+        return xml_dict
+
+    except urllib.error.URLError:
+        print('can\'t open')
+        return None
+
+
 if __name__ == '__main__':
 
     # just test zone
@@ -129,31 +213,44 @@ if __name__ == '__main__':
 
     mainframe = ttk.Frame(root, padding="3 3 12 12")
     mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
+
+    # mainframe.grid_rowconfigure(0, weight=1)
+    mainframe.grid_rowconfigure(1, weight=1)
+    mainframe.grid_columnconfigure(0, weight=1)
+
+    mainframe.pack(fill='both', expand="yes")
+
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
 
     # try with tree
     my_tree = ttk.Treeview(mainframe)
-    my_tree.grid(column=1, row=2, sticky=S)
+    my_tree.grid(column=0, row=1, sticky='nsew')
 
     # Define the columns
-    my_tree['columns'] = ("Device", "URL", "ID")
-    my_tree.column("#0", width=250, minwidth=100)
-    my_tree.column("#1", width=0, stretch="No")
+    my_tree['columns'] = ("#", "Device", "URL")
+    my_tree.column("#0", anchor=W, width=20, minwidth=20, stretch=NO)
+    my_tree.column("#", anchor=CENTER, width=30, minwidth=30, stretch=NO)
+    my_tree.column("Device", anchor=W, minwidth=100)
     my_tree.column("URL", anchor=W, minwidth=100)
-    my_tree.column("ID", anchor=CENTER, minwidth=80)
 
     # Create Headings
-    my_tree.heading("#0", text="Device", anchor=W)
-    my_tree.heading("#1", text="", anchor=W)
+    my_tree.heading("#0", text="", anchor=W)
+    my_tree.heading("#", text="#", anchor=CENTER)
     my_tree.heading("URL", text="URL", anchor=CENTER)
-    my_tree.heading("ID", text="ID", anchor=CENTER)
+    my_tree.heading("Device", text="Device", anchor=CENTER)
 
-    ttk.Button(mainframe, text="Search", command=ssdp_search).grid(column=1, row=1, sticky=N)
+    button = ttk.Button(mainframe, text="Search", command=ssdp_search)
+    button.grid(column=0, row=0, sticky='new')
+
+    my_tree.tag_configure("local", font=font.Font(size=9, weight='bold'))
 
     # root.bind("<Return>", ssdp_search(text_box))
 
     for child in mainframe.winfo_children():
         child.grid_configure(padx=5, pady=5)
+
+    # bind left-click to 'open_link'
+    my_tree.bind('<Button-1>', open_link)
 
     root.mainloop()
