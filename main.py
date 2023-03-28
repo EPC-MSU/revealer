@@ -10,16 +10,23 @@ import webbrowser as wb
 import xml.etree.ElementTree as ET
 import urllib.request
 
+import textwrap
+
 from version import Version
 
 
+def wrap(string, length=8):
+    return '\n'.join(textwrap.wrap(string, length))
+
+
 class MIPASDialog(sd.Dialog):
-    def __init__(self, title, prompt,
+    def __init__(self, title, device, uuid,
                  initialvalue=None,
                  minvalue=None, maxvalue = None,
                  parent=None):
 
-        self.prompt = prompt
+        self.device = device
+        self.uuid = uuid
         self.minvalue = minvalue
         self.maxvalue = maxvalue
 
@@ -37,24 +44,33 @@ class MIPASDialog(sd.Dialog):
 
     def body(self, master):
 
-        w = Label(master, text=self.prompt, justify=LEFT)
-        w.grid(row=0, padx=5, sticky=W)
+        d_label = Label(master, text="Device: ", justify=LEFT)
+        d_label.grid(column=0, row=0, padx=5, sticky=W)
+
+        device = Label(master, text=self.device, justify=LEFT)
+        device.grid(column=1, row=0, padx=5, sticky=W)
+
+        u_label = Label(master, text="UUID: ", justify=LEFT)
+        u_label.grid(column=0, row=1, padx=5, sticky=W)
+
+        uuid = Label(master, text=self.uuid, justify=LEFT)
+        uuid.grid(column=1, row=1, padx=5, sticky=W)
 
         ip_label = Label(master, text="New IP address: ", justify=LEFT)
-        ip_label.grid(column=0, row=1, padx=5, sticky=W)
+        ip_label.grid(column=0, row=2, padx=5, pady=5, sticky=W)
 
         netmask_label = Label(master, text="New Network Mask: ", justify=LEFT)
-        netmask_label.grid(column=0, row=2, padx=5, sticky=W)
+        netmask_label.grid(column=0, row=3, padx=5, pady=5, sticky=W)
 
         self.entry_ip = Entry(master, name="entry_ip")
-        self.entry_ip.grid(column=1, row=1, padx=5, sticky=W+E)
+        self.entry_ip.grid(column=1, row=2, padx=5, pady=5, sticky=W+E)
 
         if self.initialvalue is not None:
             self.entry_ip.insert(0, self.initialvalue)
             self.entry_ip.select_range(0, END)
 
         self.entry_mask = Entry(master, name="entry_mask")
-        self.entry_mask.grid(column=1, row=2, padx=5, sticky=W+E)
+        self.entry_mask.grid(column=1, row=3, padx=5, pady=5, sticky=W+E)
 
         if self.initialvalue is not None:
             self.entry_mask.insert(0, self.initialvalue)
@@ -64,34 +80,18 @@ class MIPASDialog(sd.Dialog):
 
     def validate(self):
         try:
-            result = self.getresult()
+            result_ip = self.getresult()
         except ValueError:
             mb.showwarning(
                 "Illegal value",
-                self.errormessage + "\nPlease try again",
-                parent = self
-            )
-            return 0
-
-        if self.minvalue is not None and result < self.minvalue:
-            mb.showwarning(
-                "Too small",
-                "The allowed minimum value is %s. "
-                "Please try again." % self.minvalue,
-                parent = self
-            )
-            return 0
-
-        if self.maxvalue is not None and result > self.maxvalue:
-            mb.showwarning(
-                "Too large",
-                "The allowed maximum value is %s. "
-                "Please try again." % self.maxvalue,
+                "\nPlease try again",
                 parent=self
             )
             return 0
 
-        self.result = result
+        # TODO: maybe we need to validate here
+
+        self.result = result_ip
 
         return 1
 
@@ -110,6 +110,8 @@ class Revealer2:
 
         self.root = Tk()
         self.root.title("Revealer 2 " + Version.full)
+
+        self.root.iconphoto(False, PhotoImage(file="resources/appicon.png"))
 
         mainframe = ttk.Frame(self.root, padding="8 3 8 8")
         mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
@@ -166,10 +168,14 @@ class Revealer2:
         # test
         self.menu = Menu(self.root, tearoff=0)
 
+        # store event for using in clicking callbacks
+        self.event = None
+
     def do_popup(self, event):
         try:
+            self.event = event
             self.menu.delete(0, 2)
-            self.menu.add_command(label="Change settings..", command=self.change_ip_click(event))
+            self.menu.add_command(label="Change settings..", command=self.change_ip_click)
             self.menu.add_separator()
             self.menu.add_command(label="Properties")
             self.menu.tk_popup(event.x_root, event.y_root)
@@ -218,6 +224,8 @@ class Revealer2:
         device_number = 1
 
         for adapter in adapters:
+            if len(devices) > 0:
+                break
             for ip in adapter.ips:
                 if not isinstance(ip.ip, str):
                     continue
@@ -233,6 +241,7 @@ class Revealer2:
                     # print('   Can\'t bind to this ip')
                     continue
 
+                # set timeout
                 SOC.settimeout(2)
                 try:
                     SOC.sendto(MS.encode('utf-8'), ("239.255.255.250", 1900))
@@ -254,6 +263,7 @@ class Revealer2:
                             # TODO: return
                             #data_dict = parse_ssdp_data(data.decode('utf-8'))
                             xml_dict = self.parse_upnp_xml(data_dict["location"])
+                            # xml_dict = None
 
                             if xml_dict is not None:
                                 self.tree.insert(parent='', index=str(device_number), iid=index, text="",
@@ -278,7 +288,11 @@ class Revealer2:
 
                 except socket.timeout:
                     SOC.close()
-                    pass
+                    # pass
+                    if len(devices) > 0:
+                        break
+                    else:
+                        pass
 
         self.button["state"] = "normal"
         self.button["text"] = "Search"
@@ -351,7 +365,7 @@ class Revealer2:
             # print('can\'t open')
             return None
 
-    def change_ip_multicast(self, iid, device_number, uuid, new_ip, net_mask='255.255.240.0'):
+    def change_ip_multicast(self, iid, uuid, new_ip, net_mask='255.255.240.0'):
         """
         Function for changing device's net settings (IP address and network mask) via multicast. We are using same
         protocol as for SSDP M-SEARCH but setting its aim as desired device's UUID and add new header in format:
@@ -379,14 +393,8 @@ class Revealer2:
             'MIPAS:' + new_ip + ';' + net_mask + ';\r\n' \
             '\r\n'
 
-
-        """for i in self.tree.get_children():
-            self.tree.delete(i)
-
-        self.tree.update()"""
-
         self.button["state"] = "disabled"
-        self.button["text"] = "Searching..."
+        self.button["text"] = "Search"
         self.button.update()
 
         devices = set()
@@ -394,6 +402,8 @@ class Revealer2:
         adapters = ifaddr.get_adapters()
 
         for adapter in adapters:
+            if len(devices) > 0:
+                break
             for ip in adapter.ips:
                 if not isinstance(ip.ip, str):
                     continue
@@ -409,7 +419,7 @@ class Revealer2:
                     # print('   Can\'t bind to this ip')
                     continue
 
-                SOC.settimeout(2)
+                SOC.settimeout(1)
                 try:
                     SOC.sendto(MS.encode('utf-8'), ("239.255.255.250", 1900))
                 except OSError as err:
@@ -428,39 +438,53 @@ class Revealer2:
 
                 except socket.timeout:
                     SOC.close()
+                    if len(devices) > 0:
+                        break
                     pass
 
-        # if we recieved answer - we are great
+        # if we received an answer - we have not broken the device (at least)
+        # so delete it from the list
         if len(devices) > 0:
+            mb.showinfo(
+                "Change settings...", "Success.\nNew settings were applied.\nPlease update list of the devices to find this device with the new IP address.",
+                parent=self.root
+            )
             self.tree.delete(iid)
             self.tree.update()
+        else:
+            mb.showerror(
+                "Change settings...", "Error.\nSomething went wrong while setting new settings.\nPlease check inserted values and try again.", parent=self.root
+            )
 
-        # TODO: we should check that we have recieved response from new IP address
+        # TODO: we should check if we have changed the device's settings or not
+        # TODO: problem is that maybe we shouldn't response with some new data you know
 
         self.button["state"] = "normal"
         self.button["text"] = "Search"
         self.button.update()
 
-    def change_ip_click(self, event):
-        tree = event.widget  # get the treeview widget
-        region = tree.identify_region(event.x, event.y)
-        col = tree.identify_column(event.x)
-        iid = tree.identify('item', event.x, event.y)
+    def change_ip_click(self):
+        tree = self.event.widget  # get the treeview widget
+        region = tree.identify_region(self.event.x, self.event.y)
+        col = tree.identify_column(self.event.x)
+        iid = tree.identify('item', self.event.x, self.event.y)
         if region == 'cell':
-            link = tree.item(iid)['values'][2]  # get the link from the selected row
+            device = tree.item(iid)['values'][1]  # get the link from the selected row
             uuid = tree.item(iid)['values'][3]
             tags = tree.item(iid)['tags'][0]
             if tags != "local":
-                print("Can't open this link.")
-                print(tree.item(iid)['values'][3])
+                # print(tree.item(iid)['values'][3])
                 # test window
-                dialog = MIPASDialog('Change settings...', '', parent=self.root)
+                dialog = MIPASDialog("Change settings...", device, uuid, parent=self.root)
                 if dialog.result is not None:
-                    ip, net_mask = dialog.result
-                    print(ip, net_mask)
+                    try:
+                        ip, net_mask = dialog.result
+                        print(ip, net_mask)
 
-                    # request changing net settings
-                    self.change_ip_multicast(iid, 100, uuid, ip, net_mask)
+                        # request changing net settings
+                        self.change_ip_multicast(iid, uuid, ip, net_mask)
+                    except ValueError as err:
+                        print(f"In values there were some error: {dialog.result}")
 
 
 if __name__ == '__main__':
