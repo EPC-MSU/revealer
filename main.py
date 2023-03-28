@@ -281,9 +281,10 @@ class Revealer2:
                                 self.tree.item(index, tags="not_local")
                                 self.tree.insert(parent=str(index), index='end', iid=index + 1, text="",
                                                  values=("", "  Firmware version: " + data_dict["version"], ""))
+                                index += 2
                             self.tree.update()
 
-                            index += 3
+
                             device_number += 1
 
                 except socket.timeout:
@@ -293,6 +294,20 @@ class Revealer2:
                         break
                     else:
                         pass
+
+        # now do the old search and get devices there
+
+        old_devices = self.old_search(devices)
+
+        for device in old_devices:
+            self.tree.insert(parent='', index=str(device_number), iid=index, text="",
+                             values=(str(device_number), '', "http://"+device+":8080", ''))
+            self.tree.item(index, tags="local")
+
+            self.tree.update()
+            index += 1
+            device_number += 1
+
 
         self.button["state"] = "normal"
         self.button["text"] = "Search"
@@ -340,7 +355,7 @@ class Revealer2:
         xml_dict = {}
 
         try:
-            response = urllib.request.urlopen(url, timeout=0.2).read().decode('utf-8')
+            response = urllib.request.urlopen(url, timeout=0.1).read().decode('utf-8')
             data = response.split('\r\n\r\n')  # we need to get rid of the headers
             # print(data[len(data)-1])
             tree = ET.fromstring(data[len(data)-1])
@@ -432,7 +447,7 @@ class Revealer2:
                         data, addr = SOC.recvfrom(8192)
                         data_dict = self.parse_ssdp_data(data.decode('utf-8'))
 
-                        # if we have not recieved this location before
+                        # if we have not received this location before
                         if not data_dict["location"] in devices:
                             devices.add(data_dict["location"])
 
@@ -485,6 +500,84 @@ class Revealer2:
                         self.change_ip_multicast(iid, uuid, ip, net_mask)
                     except ValueError as err:
                         print(f"In values there were some error: {dialog.result}")
+
+
+    def get_page_title(self, url):
+        title = ""
+        try:
+            response = urllib.request.urlopen(url, timeout=0.3).read().decode('utf-8')
+
+            data = response.split('title>')  # we need to get rid of the headers
+            data = response[response.find('<title>') + 7 : response.find('</title>')]
+            print(data)
+
+            return title
+
+        except urllib.error.URLError:
+            # print('can\'t open')
+            return title
+
+    def old_search(self, ssdp_devices):
+        """
+        Perform old version of searching devices in the local network as in the revealer 0.1.0
+        Sends multicast packet with special string and listen for the answers.
+        :return:
+        """
+
+        devices = set()
+
+        interfaces = socket.getaddrinfo(host=socket.gethostname(), port=None, family=socket.AF_INET)
+        allips = [ip[4][0] for ip in interfaces]
+
+        for ip in allips:
+            if not isinstance(ip, str):
+                continue
+
+            if ip == '127.0.0.1':
+                continue
+
+            # Send M-Search message to multicast address for UPNP
+            SOC = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            SOC.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            try:
+                SOC.bind((ip, 0))
+            except:
+                # print('   Can\'t bind to this ip')
+                continue
+
+            try:
+                MS = "DISCOVER_CUBIELORD_REQUEST " + str(SOC.getsockname()[1])
+            except:
+                print('error while getting socket port number')
+
+            SOC.settimeout(2)
+            try:
+                SOC.sendto(MS.encode('utf-8'), ("255.255.255.255", 8008))
+            except OSError as err:
+                print(err)
+                continue
+
+            # listen and capture returned responses
+            try:
+                while True:
+                    data, addr = SOC.recvfrom(8192)
+                    if addr[0] not in devices and addr[0] not in ssdp_devices:
+                        devices.add(addr[0])
+                        print(addr[0])
+                        # self.get_page_title("http://" + addr[0] + ":8080")
+                    #data_dict = self.parse_ssdp_data(data.decode('utf-8'))
+
+                    # if we have not received this location before
+                    #if not data_dict["location"] in devices:
+                     #   devices.add(data_dict["location"])
+
+            except socket.timeout:
+                SOC.close()
+                if len(devices) > 0:
+                    break
+                pass
+
+        return devices
 
 
 if __name__ == '__main__':
