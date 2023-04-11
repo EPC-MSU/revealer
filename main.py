@@ -11,8 +11,16 @@ import xml.etree.ElementTree as ET
 import urllib.request
 
 import ast
+import threading
 
 from version import Version
+
+
+class SSDPEnhancedDevice:
+    def __init__(self, ssdp_device_name, enhanced_ssdp_support_min_fw, enhanced_ssdp_version):
+        self.ssdp_device_name = ssdp_device_name
+        self.enhanced_ssdp_support_min_fw = enhanced_ssdp_support_min_fw
+        self.enhanced_ssdp_version = enhanced_ssdp_version
 
 
 class Revealer2:
@@ -24,6 +32,8 @@ class Revealer2:
     DEVICE_TYPE_OUR = 0
     DEVICE_TYPE_OTHER = 1
 
+    EVEN_ROW_COLOR = "#f3f6f6"
+
     # To add support of our new device add it in ths dictionary
     #
     # Format: "Name of its SSDP-server": "version of the firmware from which setting IP via multicast is supported"
@@ -31,7 +41,25 @@ class Revealer2:
     #
     # Take note that "Name of its SSDP-server" must be equal to the name in the SERVER string which this device is
     # sending to the SSDP M_SEARCH.
-    OUR_DEVICE_DICT = {"8SMC5-USB": "4.7.8", "Eth232-4P": "1.0.13", "mDrive": ""}
+    # OUR_DEVICE_DICT = {"8SMC5-USB": "4.7.8", "Eth232-4P": "1.0.13", "mDrive": ""}
+
+    SSDP_ENHANCED_DEVICES = [
+        SSDPEnhancedDevice(
+            ssdp_device_name="8SMC5-USB",
+            enhanced_ssdp_support_min_fw="4.7.8",
+            enhanced_ssdp_version="1.0.0"
+        ),
+        SSDPEnhancedDevice(
+            ssdp_device_name="Eth232-4P",
+            enhanced_ssdp_support_min_fw="1.0.13",
+            enhanced_ssdp_version="1.0.0"
+        ),
+        SSDPEnhancedDevice(
+            ssdp_device_name="mDrive",
+            enhanced_ssdp_support_min_fw="4.7.8",
+            enhanced_ssdp_version="1.0.0"
+        )
+    ]
 
     def __init__(self):
 
@@ -50,19 +78,18 @@ class Revealer2:
         mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
 
         mainframe.grid_rowconfigure(1, weight=1)
-        mainframe.grid_rowconfigure(2, weight=1)
+        # mainframe.grid_rowconfigure(2, weight=1)
         mainframe.grid_columnconfigure(0, weight=1)
 
         mainframe.pack(fill='both', expand="yes")
 
         # add Search-button
-        self.button = ttk.Button(mainframe, text="Search", command=self.ssdp_search)
+        self.button = ttk.Button(mainframe, text="Search", command=self.start_thread_search)
         self.button.grid(column=0, row=0, sticky='new')
 
         self.root.bind("<Return>", self.ssdp_search)
 
-        self.our_tree = self.create_tree(mainframe, col=0, row=1, title="Our devices", height=10)
-        self.else_tree = self.create_tree(mainframe, col=0, row=2, title="Other devices", height=5)
+        self.main_table = self.create_table(mainframe, col=0, row=1, height=300)
 
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
@@ -70,88 +97,120 @@ class Revealer2:
         # store event for using in clicking callbacks
         self.event = None
 
-    def create_tree(self, master, col, row, title, height):
-        """
-        Create new Treeview object with our structure.
-        :param master: tkinter object
-              Parent object in which we should put our new tree.
-        :param col: int
-              Number of column of the master to put our new tree to.
-        :param row: int
-              Number of row of the master to put our new tree to.
-        :param title: string
-              Name of this treeview.
-        :return: new_tree: ttk.Treeview object
-        """
+    def start_thread_search(self):
+        search_thread = threading.Thread(target=self.ssdp_search)
+        search_thread.start()
+
+    def create_table(self, master, col, row, height):
         # try with frame for title and tree together
-        frame = ttk.Frame(master)
+        frame = Frame(master, borderwidth=1, relief="solid", background='white', height=height, width=500)
         frame.grid(column=col, row=row, sticky='nsew')
         frame.grid_rowconfigure(1, weight=1)
         frame.grid_columnconfigure(0, weight=1)
 
-        # label
-        label = ttk.Label(frame, text=title, justify=LEFT,
-              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
-        label.grid(column=0, row=0, sticky=W)
+        frame.grid_propagate(False)
 
-        new_tree = ttk.Treeview(frame, height=height)
-        new_tree.grid(column=0, row=1, sticky='nsew')
+        header_color = "#dee0e0"
 
-        # Define the columns
-        new_tree['columns'] = ("#", "Device", "URL", "UUID", "Properties")
-        new_tree.column("#0", anchor=W, width=0, minwidth=20, stretch=NO)
-        new_tree.column("#", anchor=CENTER, width=30, minwidth=30, stretch=NO)
-        new_tree.column("Device", anchor=W, width=400, minwidth=150)
-        new_tree.column("URL", anchor=W, minwidth=250)
-        new_tree.column("UUID", anchor=W, width=0)
-        new_tree.column("Properties", anchor=W, width=0)
+        new_table = Frame(frame, background=header_color)
+        new_table.grid(column=0, row=0, sticky='nsew')
 
-        # Create Headings
-        new_tree.heading("#0", text="", anchor=W)
-        new_tree.heading("#", text="#", anchor=CENTER)
-        new_tree.heading("URL", text="URL", anchor=CENTER)
-        new_tree.heading("Device", text="Device", anchor=CENTER)
-        new_tree.heading("UUID", text="UUID", anchor=CENTER)
-        new_tree.heading("Properties", text="Properties", anchor=CENTER)
+        #scrollbar = Scrollbar(frame, orient="vertical")
+        #scrollbar.grid(column=1, row=0, sticky='ns')
 
-        # make some of the columns visible
-        new_tree["displaycolumns"] = ("#", "Device", "URL")
+        # Label(new_table, text="#", anchor="w", width=0).grid(row=0, column=0, sticky="ew")
+        header_1 = Label(new_table, text="Device", anchor="center", background=header_color)
+        header_1.grid(row=0, column=0, sticky="ew")
+        header_1.header = "yes"
 
-        new_tree.tag_configure("local",
-                                    font=font.Font(size=font.nametofont('TkTextFont').actual()['size'],
-                                                   weight='bold'))
-        new_tree.tag_configure("old_local",
-                                    font=font.Font(size=font.nametofont('TkTextFont').actual()['size'],
-                                                   weight='bold'))
+        header_2 = ttk.Separator(new_table, takefocus=0, orient=VERTICAL)
+        header_2.grid(row=0, column=1, sticky="ns")
+        header_2.header = "yes"
+
+        header_3 = Label(new_table, text="URL", anchor="center", background=header_color, height=0)
+        header_3.grid(row=0, column=2, sticky="ew")
+        header_3.header = "yes"
+
+        print(header_3['height'])
+
+        new_table.grid_columnconfigure(0, weight=1, minsize=100)
+        new_table.grid_columnconfigure(1, weight=0)
+        new_table.grid_columnconfigure(2, weight=1, minsize=100)
 
         # bind double left click and right click
         # bind left-click to 'open_link'
-        new_tree.bind("<Double-Button-1>", self.open_link)
+        new_table.bind("<Double-Button-1>", self.open_link)
 
         # bind right-click to 'change_ip'
-        new_tree.bind("<Button-3>", self.do_popup)
+        new_table.bind("<Button-3>", self.do_popup)
 
-        return new_tree
+        return new_table
+
+    def find_ssdp_enhanced_device(self, device_name):
+        index = 0
+
+        while index < len(self.SSDP_ENHANCED_DEVICES):
+            if self.SSDP_ENHANCED_DEVICES[index].ssdp_device_name.lower() == device_name.lower():
+                return index
+
+            index += 1
+
+        return None
 
     def do_popup(self, event):
         self.event = event
         tree = self.event.widget  # get the treeview widget
-        region = tree.identify_region(self.event.x, self.event.y)
-        iid = tree.identify('item', self.event.x, self.event.y)
-        tags = tree.item(iid)['tags'][0]
-        uuid = tree.item(iid)['values'][3]
+        if tree.winfo_class() == 'Treeview':
+            region = tree.identify_region(self.event.x, self.event.y)
+            iid = tree.identify('item', self.event.x, self.event.y)
+            tags = tree.item(iid)['tags'][0]
+            uuid = tree.item(iid)['values'][3]
 
-        # test
-        menu = Menu(self.root, tearoff=0)
+            # test
+            menu = Menu(self.root, tearoff=0)
 
-        if region == 'cell':
+            if region == 'cell':
+                try:
+                    if tags == "local":
+                        menu.add_command(label="Open web-page", command=self.open_link)
+                        menu.add_separator()
+                        menu.add_command(label="Properties", command=self.view_prop)
+                        menu.tk_popup(event.x_root, event.y_root)
+                    elif tags == "not_local" and uuid != "":
+                        menu.delete(0, 2)
+                        menu.add_command(label="Change settings...", command=self.change_ip_click)
+                        menu.add_separator()
+                        menu.add_command(label="Properties", command=self.view_prop)
+                        menu.tk_popup(event.x_root, event.y_root)
+                    elif tags == "not_local":
+                        menu.delete(0, 2)
+                        menu.add_command(label="Change settings...", command=self.change_ip_click)
+                        menu.entryconfig(1, state=DISABLED)
+                        menu.add_separator()
+                        menu.add_command(label="Properties", command=self.view_prop)
+                        menu.tk_popup(event.x_root, event.y_root)
+                    elif tags == "old_local":
+                        menu.delete(0, 2)
+                        menu.add_command(label="Open web-page", command=self.open_link)
+                        menu.add_separator()
+                        menu.add_command(label="Properties", command=self.view_prop)
+                        menu.entryconfig(2, state=DISABLED)
+                        menu.tk_popup(event.x_root, event.y_root)
+
+                finally:
+                    menu.grab_release()
+
+        if tree.winfo_class() == 'Label':
+            menu = Menu(self.root, tearoff=0)
+
             try:
+                tags = tree.tag
                 if tags == "local":
                     menu.add_command(label="Open web-page", command=self.open_link)
                     menu.add_separator()
                     menu.add_command(label="Properties", command=self.view_prop)
                     menu.tk_popup(event.x_root, event.y_root)
-                elif tags == "not_local" and uuid != "":
+                elif tags == "not_local":  # and uuid != "":
                     menu.delete(0, 2)
                     menu.add_command(label="Change settings...", command=self.change_ip_click)
                     menu.add_separator()
@@ -177,33 +236,49 @@ class Revealer2:
 
     def view_prop(self):
         tree = self.event.widget  # get the treeview widget
-        region = tree.identify_region(self.event.x, self.event.y)
-        col = tree.identify_column(self.event.x)
-        iid = tree.identify('item', self.event.x, self.event.y)
 
-        name = ''
-        if region == 'cell':
-            prop_dict = ast.literal_eval(tree.item(iid)['values'][4])
-            try:
-                # if we have local SSDP device
-                name = prop_dict['friendlyName']
-                PropDialog(name, prop_dict, tree.item(iid)['values'][2], parent=self.root)
-            except KeyError:
+        if tree.winfo_class() == "Treeview":
+            region = tree.identify_region(self.event.x, self.event.y)
+            col = tree.identify_column(self.event.x)
+            iid = tree.identify('item', self.event.x, self.event.y)
+
+            name = ''
+            if region == 'cell':
+                prop_dict = ast.literal_eval(tree.item(iid)['values'][4])
                 try:
-                    # if we have not local SSDP device
-                    name = prop_dict['server']
+                    # if we have local SSDP device
+                    name = prop_dict['friendlyName']
                     PropDialog(name, prop_dict, tree.item(iid)['values'][2], parent=self.root)
                 except KeyError:
-                    name = prop_dict = tree.item(iid)['values'][1]
-                    print('No properties for this device')
-
-        pass
+                    try:
+                        # if we have not local SSDP device
+                        name = prop_dict['server']
+                        PropDialog(name, prop_dict, tree.item(iid)['values'][2], parent=self.root)
+                    except KeyError:
+                        prop_dict = tree.item(iid)['values'][1]
+                        print('No properties for this device')
+                        pass
+        elif tree.winfo_class() == "Label":
+            if hasattr(tree, "other_data") and hasattr(tree, "link"):
+                prop_dict = tree.other_data
+                try:
+                    # if we have local SSDP device
+                    name = prop_dict['friendlyName']
+                    PropDialog(name, prop_dict, tree.link, parent=self.root)
+                except KeyError:
+                    try:
+                        # if we have not local SSDP device
+                        name = prop_dict['server']
+                        PropDialog(name, prop_dict, tree.link, parent=self.root)
+                    except KeyError:
+                        print('No properties for this device')
+                        pass
 
     def open_link(self, event=None):
         if event is not None:
             self.event = event
         tree = self.event.widget  # get the treeview widget
-        try:
+        if tree.winfo_class() == 'Treeview':
             region = tree.identify_region(self.event.x, self.event.y)
             col = tree.identify_column(self.event.x)
             iid = tree.identify('item', self.event.x, self.event.y)
@@ -223,8 +298,91 @@ class Revealer2:
                     else:
                         print("Can't open this link.")
 
-        except AttributeError:
-            pass
+        if tree.winfo_class() == 'Label':
+            if hasattr(tree, 'link') and hasattr(tree, 'tag'):
+                if tree.tag == "local" or tree.tag == "old_local":
+                    wb.open_new_tab(tree.link)  # open the link in a browser tab
+                else:
+                    print("Can't open this link.")
+
+    def add_row_item(self, row, name, link, uuid, other_data, tag):
+
+        if row % 2 == 0:
+            bg_color = self.EVEN_ROW_COLOR
+        else:
+            bg_color = "white"
+
+        device = Label(self.main_table, text=name, anchor="w", background=bg_color)
+        device.grid(row=row, column=0, sticky="ew")
+
+        Label(self.main_table, text="", anchor="w", background=bg_color).grid(row=row, column=1, sticky="ns")
+
+        if tag != "not_local":
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
+                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
+        else:
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2',
+                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
+        link.grid(row=row, column=2, sticky="ew")
+
+        device.tag = tag
+        link.tag = tag
+
+        device.link = link['text']
+        link.link = link['text']
+
+        device.uuid = uuid
+        device.other_data = other_data
+
+        link.uuid = uuid
+        link.other_data = other_data
+
+        # bind double left click and right click
+        # bind left-click to 'open_link'
+        link.bind("<Double-Button-1>", self.open_link)
+
+        # bind right-click to 'change_ip'
+        link.bind("<Button-3>", self.do_popup)
+        device.bind("<Button-3>", self.do_popup)
+
+        return
+
+    def move_table_rows(self, row_start, direction='down'):
+        """
+        Function moves every row of the main table to the next one since we need to sort our devices in the list.
+        :param row_start: int
+           First row to move.
+        :param direction: str
+           Direction of the movement of the rows. Can be 'up' or 'down'.
+        :return:
+        """
+
+        additional_row = 1
+
+        if direction == 'down':
+            additional_row = 1
+        elif direction == 'up':
+            additional_row = -1
+
+        for widget in self.main_table.winfo_children():
+            row = widget.grid_info()['row']
+            col = widget.grid_info()['column']
+            if row >= row_start:
+                widget.grid(column=col, row=row+additional_row)
+                if (row+additional_row) % 2 == 0:
+                    widget["background"] = self.EVEN_ROW_COLOR
+                else:
+                    widget["background"] = "white"
+
+    def delete_table_row(self, del_row):
+        for widget in self.main_table.winfo_children():
+            row = widget.grid_info()['row']
+            col = widget.grid_info()['column']
+            if row == del_row:
+                print(widget['text'], row, "DELETE")
+                widget.destroy()
+
+        self.move_table_rows(del_row+1, direction='up')
 
     def ssdp_search(self):
         # M-Search message body
@@ -237,16 +395,20 @@ class Revealer2:
             '\r\n'
 
         # remove everything from our tree
-        for i in self.our_tree.get_children():
+        """for i in self.our_tree.get_children():
             self.our_tree.delete(i)
 
-        self.our_tree.update()
+        self.our_tree.update()"""
+
+        for i in self.main_table.winfo_children():
+            if not hasattr(i, "header"):
+                i.destroy()
 
         # remove everything from tree of other devices
-        for i in self.else_tree.get_children():
-            self.else_tree.delete(i)
+        # for i in self.else_tree.get_children():
+        #   self.else_tree.delete(i)
 
-        self.else_tree.update()
+        # self.else_tree.update()
 
         self.button["state"] = "disabled"
         self.button["text"] = "Searching..."
@@ -254,10 +416,14 @@ class Revealer2:
 
         devices = set()
 
+        interfaces = socket.getaddrinfo(host=socket.gethostname(), port=None, family=socket.AF_INET)
+        allips = [ip[4][0] for ip in interfaces]
+
+        # print(allips)
+
         adapters = ifaddr.get_adapters()
 
-        index = [1, 1]
-        device_number = [1, 1]
+        device_number = [0, 0]
 
         for adapter in adapters:
             for ip in adapter.ips:
@@ -266,6 +432,8 @@ class Revealer2:
 
                 if ip.ip == '127.0.0.1':
                     continue
+
+                # print(ip.ip)
 
                 # Send M-Search message to multicast address for UPNP
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -296,15 +464,17 @@ class Revealer2:
                             xml_dict = self.parse_upnp_xml(data_dict["location"])
 
                             # check is this our device or not
-                            tree_in_use = self.else_tree
                             version_with_settings = ""
-                            type_device = 1
+                            type_device = Revealer2.DEVICE_TYPE_OUR
+                            other_type = Revealer2.DEVICE_TYPE_OTHER
 
-                            try:
-                                version_with_settings = Revealer2.OUR_DEVICE_DICT[data_dict["server"]]
-                                tree_in_use = self.our_tree
+                            device_index_in_list = self.find_ssdp_enhanced_device(data_dict["server"])
+
+                            if device_index_in_list is not None:
+                                version_with_settings = self.SSDP_ENHANCED_DEVICES[device_index_in_list].enhanced_ssdp_support_min_fw
                                 type_device = Revealer2.DEVICE_TYPE_OUR
-                            except KeyError:
+                                device_number[Revealer2.DEVICE_TYPE_OTHER] += 1
+                            else:
                                 version_with_settings = ""
                                 type_device = Revealer2.DEVICE_TYPE_OTHER
                                 pass
@@ -318,13 +488,8 @@ class Revealer2:
                                 else:
                                     link = xml_dict["presentationURL"]
 
-                                tree_in_use.insert(parent='', index=str(device_number[type_device]), iid=index[type_device], text="",
-                                                   values=(str(device_number[type_device]), xml_dict["friendlyName"],
-                                                   link, "", xml_dict))
-
-                                tree_in_use.item(index[type_device], tags="local")
-
-                                index[type_device] += 1
+                                self.add_row_item(device_number[type_device] + 1, xml_dict["friendlyName"],
+                                                  link, "", xml_dict, tag="local")
                             else:
                                 uuid = data_dict["uuid"]
 
@@ -333,7 +498,6 @@ class Revealer2:
                                     version_with_settings_array = [int(num) for num in version_with_settings.split('.')]
                                     current_version = data_dict["version"].split('.')
                                     current_version_array = [int(num) for num in current_version]
-                                    print(version_with_settings_array, current_version_array)
 
                                     # check that we have version greater than this
                                     if current_version_array[0] < version_with_settings_array[0]:
@@ -343,24 +507,15 @@ class Revealer2:
                                     elif current_version_array[2] < version_with_settings_array[2]:
                                         uuid = ""
 
-                                    print(uuid)
-
-                                tree_in_use.insert(parent='', index=str(device_number[type_device]), iid=index[type_device], text="",
-                                                   values=(str(device_number[type_device]), data_dict["server"], data_dict["ssdp_url"],
-                                                   uuid, data_dict))
-                                tree_in_use.item(index[type_device], tags="not_local")
-                                index[type_device] += 1
-
-                            # update this tree to view new device
-                            tree_in_use.update()
+                                self.add_row_item(device_number[type_device] + 1, data_dict["server"],
+                                                  data_dict["ssdp_url"], uuid, data_dict, tag="not_local")
 
                             device_number[type_device] += 1
 
                 except socket.timeout:
                     sock.close()
                     # pass
-                    old_devices = self.old_search(devices, device_number[Revealer2.DEVICE_TYPE_OUR],
-                                                  index[Revealer2.DEVICE_TYPE_OUR], ip.ip)
+                    old_devices = self.old_search(devices, device_number[Revealer2.DEVICE_TYPE_OUR], ip.ip)
                     for device in old_devices:
                         devices.add(device)
 
@@ -394,7 +549,8 @@ class Revealer2:
                 elif words_string[
                     0].lower() == Revealer2.SSDP_HEADER_LOCATION:  # format: LOCATION: http://172.16.130.67:80/Basic_info.xml
                     words_string = string.split(':')  # do this again for symmetry
-                    if words_string[1][0] != ' ':  # we should check if we have ' ' here and not take it to the location string
+                    if words_string[1][
+                        0] != ' ':  # we should check if we have ' ' here and not take it to the location string
                         ssdp_dict["location"] = words_string[1] + ':' + words_string[2] + ':' + words_string[3]
                     else:
                         ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' + words_string[3]
@@ -431,11 +587,11 @@ class Revealer2:
                     # print(f'Tag: {grandchild.tag}, text: {grandchild.text}')
             return xml_dict
 
-        except urllib.error.URLError:
+        except:
             # print('can\'t open')
             return None
 
-    def change_ip_multicast(self, iid, uuid, new_ip, net_mask='255.255.240.0'):
+    def change_ip_multicast(self, row, uuid, new_ip, net_mask='255.255.0.0'):
         """
         Function for changing device's net settings (IP address and network mask) via multicast. We are using same
         protocol as for SSDP M-SEARCH but setting its aim as desired device's UUID and add new header in format:
@@ -515,13 +671,14 @@ class Revealer2:
         # if we received an answer - we have not broken the device (at least)
         # so delete it from the list
         if len(devices) > 0:
+            self.delete_table_row(row)
+
             mb.showinfo(
                 "Change settings...",
                 "Success.\nNew settings were applied.\nPlease update list of the devices to find this device with the new IP address.",
                 parent=self.root
             )
-            self.our_tree.delete(iid)
-            self.our_tree.update()
+
         else:
             mb.showerror(
                 "Change settings...",
@@ -538,26 +695,42 @@ class Revealer2:
 
     def change_ip_click(self):
         tree = self.event.widget  # get the treeview widget
-        region = tree.identify_region(self.event.x, self.event.y)
-        col = tree.identify_column(self.event.x)
-        iid = tree.identify('item', self.event.x, self.event.y)
-        if region == 'cell':
-            device = tree.item(iid)['values'][1]  # get the link from the selected row
-            uuid = tree.item(iid)['values'][3]
-            tags = tree.item(iid)['tags'][0]
-            if tags != "local":
-                # print(tree.item(iid)['values'][3])
-                # test window
-                dialog = MIPASDialog("Change settings...", device, uuid, parent=self.root)
-                if dialog.result is not None:
-                    try:
-                        ip, net_mask = dialog.result
-                        print(ip, net_mask)
 
-                        # request changing net settings
-                        self.change_ip_multicast(iid, uuid, ip, net_mask)
-                    except ValueError as err:
-                        print(f"In values there were some error: {dialog.result}")
+        if tree.winfo_class() == "Treeview":
+            region = tree.identify_region(self.event.x, self.event.y)
+            col = tree.identify_column(self.event.x)
+            iid = tree.identify('item', self.event.x, self.event.y)
+            if region == 'cell':
+                device = tree.item(iid)['values'][1]  # get the link from the selected row
+                uuid = tree.item(iid)['values'][3]
+                tags = tree.item(iid)['tags'][0]
+                if tags != "local":
+                    # print(tree.item(iid)['values'][3])
+                    # test window
+                    dialog = MIPASDialog("Change settings...", device, uuid, parent=self.root)
+                    if dialog.result is not None:
+                        try:
+                            ip, net_mask = dialog.result
+                            print(ip, net_mask)
+
+                            # request changing net settings
+                            self.change_ip_multicast(iid, uuid, ip, net_mask)
+                        except ValueError as err:
+                            print(f"In values there were some error: {dialog.result}")
+
+        elif tree.winfo_class() == "Label":
+            if hasattr(tree, "link") and hasattr(tree, "tag") and hasattr(tree, "uuid"):
+                if tree.tag == "not_local":
+                    dialog = MIPASDialog("Change settings...", tree.other_data["server"], tree.uuid, parent=self.root)
+                    if dialog.result is not None:
+                        try:
+                            ip, net_mask = dialog.result
+                            print(ip, net_mask)
+
+                            # request changing net settings
+                            self.change_ip_multicast(tree.grid_info()["row"], tree.uuid, ip, net_mask)
+                        except ValueError as err:
+                            print(f"In values there were some error: {dialog.result}")
 
     @staticmethod
     def get_page_title(url):
@@ -575,7 +748,7 @@ class Revealer2:
             # print('can\'t open')
             return title
 
-    def old_search(self, ssdp_devices, device_number, index, ip):
+    def old_search(self, ssdp_devices, device_number, ip):
         """
         Perform old version of searching devices in the local network as in the revealer 0.1.0
         Sends multicast packet with special string and listen for the answers.
@@ -583,7 +756,6 @@ class Revealer2:
         """
 
         ssdp_device_number = device_number
-        ssdp_index = index
 
         devices = set()
 
@@ -616,17 +788,15 @@ class Revealer2:
                 if addr[0] not in devices and addr[0] not in ssdp_devices:
                     devices.add(addr[0])
 
-                    #title = self.get_page_title("http://" + addr[0] + ":8080")
+                    # title = self.get_page_title("http://" + addr[0] + ":8080")
 
                     title = "Device undefined (legacy protocol)"
 
-                    self.our_tree.insert(parent='', index=str(ssdp_device_number), iid=ssdp_index, text="",
-                                         values=(str(ssdp_device_number), title,
-                                                 "http://" + addr[0] + ":8080", ''))
-                    self.our_tree.item(ssdp_index, tags="old_local")
+                    self.move_table_rows(ssdp_device_number+1)
 
-                    self.our_tree.update()
-                    ssdp_index += 1
+                    self.add_row_item(ssdp_device_number + 1, title,
+                                      "http://" + addr[0] + ":8080", "", "", tag="old_local")
+
                     ssdp_device_number += 1
 
         except socket.timeout:
@@ -746,14 +916,22 @@ class PropDialog(sd.Dialog):
             if self.dict[name] is not None:
                 try:
                     label_name = self.labels_dict[name]
-                    Label(master, text=label_name + ": ", justify=LEFT, font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold')).grid(column=0, row=row_index, padx=5, sticky=W)
+                    Label(master, text=label_name + ": ", justify=LEFT,
+                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold')).grid(column=0,
+                                                                                                            row=row_index,
+                                                                                                            padx=5,
+                                                                                                            sticky=W)
                     if name == 'presentationURL':
-                        Label(master, text=self.url, justify=LEFT, cursor='hand2', font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline')).grid(column=1, row=row_index, padx=5, sticky=W)
+                        Label(master, text=self.url, justify=LEFT, cursor='hand2',
+                              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline')).grid(
+                            column=1, row=row_index, padx=5, sticky=W)
                     else:
                         if self.dict[name][0:4] == "http":
                             font_style = 'underline'
                             cursor = 'hand2'
-                        Label(master, text=self.dict[name], justify=LEFT, cursor=cursor, font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_style)).grid(column=1, row=row_index, padx=5, sticky=W)
+                        Label(master, text=self.dict[name], justify=LEFT, cursor=cursor,
+                              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_style)).grid(
+                            column=1, row=row_index, padx=5, sticky=W)
                     row_index += 1
                 except KeyError:
                     pass
