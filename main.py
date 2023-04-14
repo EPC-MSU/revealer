@@ -139,7 +139,7 @@ class Revealer2:
 
         # bind double left click and right click
         # bind left-click to 'open_link'
-        new_table.bind("<Double-Button-1>", self.open_link)
+        new_table.bind("<Button-1>", self.open_link)
 
         # bind right-click to 'change_ip'
         new_table.bind("<Button-3>", self.do_popup)
@@ -312,18 +312,19 @@ class Revealer2:
         else:
             bg_color = "white"
 
-        device = Label(self.main_table, text=name, anchor="w", background=bg_color)
-        device.grid(row=row, column=0, sticky="ew")
-
         Label(self.main_table, text="", anchor="w", background=bg_color).grid(row=row, column=1, sticky="ns")
 
         if tag != "not_local":
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color, font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
             link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
         else:
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2',
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color)
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color,
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
+
         link.grid(row=row, column=2, sticky="ew")
+        device.grid(row=row, column=0, sticky="ew")
 
         device.tag = tag
         link.tag = tag
@@ -339,7 +340,7 @@ class Revealer2:
 
         # bind double left click and right click
         # bind left-click to 'open_link'
-        link.bind("<Double-Button-1>", self.open_link)
+        link.bind("<Button-1>", self.open_link)
 
         # bind right-click to 'change_ip'
         link.bind("<Button-3>", self.do_popup)
@@ -416,11 +417,6 @@ class Revealer2:
 
         devices = set()
 
-        interfaces = socket.getaddrinfo(host=socket.gethostname(), port=None, family=socket.AF_INET)
-        allips = [ip[4][0] for ip in interfaces]
-
-        # print(allips)
-
         adapters = ifaddr.get_adapters()
 
         device_number = [0, 0]
@@ -487,6 +483,8 @@ class Revealer2:
                                     link = "http://" + addr[0] + xml_dict["presentationURL"]
                                 else:
                                     link = xml_dict["presentationURL"]
+
+                                xml_dict["version"] = data_dict["version"]
 
                                 self.add_row_item(device_number[type_device] + 1, xml_dict["friendlyName"],
                                                   link, "", xml_dict, tag="local")
