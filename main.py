@@ -23,6 +23,407 @@ class SSDPEnhancedDevice:
         self.enhanced_ssdp_version = enhanced_ssdp_version
 
 
+class AutoScrollbar(ttk.Scrollbar):
+    # a scrollbar that hides itself if it's not needed.  only
+    # works if you use the grid geometry manager.
+    def __init__(self, parent, **kw):
+        ttk.Scrollbar.__init__(self, parent, **kw)
+
+        self.column = None
+        self.row = None
+        self.active = False
+
+    def set(self, lo, hi):
+        if float(lo) <= 0.0 and float(hi) >= 1.0:
+            # grid_remove is currently missing from Tkinter!
+            self.grid_forget()
+            self.active = False
+        else:
+            if self.column is not None and self.row is not None:
+                if self.cget("orient") == HORIZONTAL:
+                    self.grid(column=self.column, row=self.row, sticky='we')
+                    self.active = True
+                else:
+                    self.grid(column=self.column, row=self.row, sticky='ns')
+                    self.active = True
+            else:
+                self.grid_forget()
+                self.active = False
+
+        ttk.Scrollbar.set(self, lo, hi)
+
+    def grid(self, **kw):
+        try:
+            self.column = kw['column']
+            self.row = kw['row']
+        except KeyError:
+            pass
+
+        ttk.Scrollbar.grid(self, **kw)
+
+    def pack(self, **kw):
+        raise TclError
+
+    def place(self, **kw):
+        raise TclError
+
+
+class VerticalScrolledFrame(Frame):
+    def __init__(self, parent, column, row, *args, **kw):
+        Frame.__init__(self, parent, *args, **kw)
+
+        self.grid(column=column, row=row, sticky='news')
+
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # Create a canvas object and a vertical scrollbar for scrolling it.
+        self.vscrollbar = AutoScrollbar(self, orient=VERTICAL)
+        self.vscrollbar.grid(column=1, row=0, sticky='ns')
+        self.canvas = Canvas(self, bd=0, highlightthickness=0,
+                             width=200, height=300,
+                             yscrollcommand=self.vscrollbar.set, background='white')
+        self.canvas.grid(column=0, row=0, sticky='news')
+        self.vscrollbar.config(command=self.canvas.yview)
+
+        self.canvas.grid_rowconfigure(0, weight=1)
+        self.canvas.grid_columnconfigure(0, weight=1)
+
+        # Reset the view
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
+
+        # Create a frame inside the canvas which will be scrolled with it.
+        self.interior = Frame(self.canvas)
+        self.interior.grid(column=0, row=0, sticky='news')
+        self.interior.bind('<Configure>', self._configure_interior)
+        self.canvas.bind('<Configure>', self._configure_canvas)
+        self.interior_id = self.canvas.create_window(0, 0, window=self.interior, anchor=NW)
+
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # in Unix systems we need to use Button-4 and Button-5 as MouseWheel indication
+        self.canvas.bind_all("<Button-4>", self._on_mousewheel)
+        self.canvas.bind_all("<Button-5>", self._on_mousewheel)
+
+    def _on_mousewheel(self, event):
+        # only if scrollbar is active
+        if self.vscrollbar.active:
+            # in Unix systems we need to use Button-4 and Button-5 as MouseWheel indication
+            if event.num == 4:
+                # up
+                self.canvas.yview_scroll(int(-1), "units")
+            elif event.num == 5:
+                # down
+                self.canvas.yview_scroll(int(1), "units")
+            else:
+                # auto calculate for mouse wheel in windows
+                self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _configure_interior(self, event):
+        # Update the scrollbars to match the size of the inner frame.
+        size = (self.interior.winfo_reqwidth(), self.interior.winfo_reqheight())
+        self.canvas.config(scrollregion=(0, 0, size[0], size[1]))
+        if self.interior.winfo_reqwidth() != self.canvas.winfo_width():
+            # Update the canvas's width to fit the inner frame.
+            self.canvas.config(width=self.interior.winfo_reqwidth())
+
+    def _configure_canvas(self, event):
+        if self.interior.winfo_width() != self.canvas.winfo_width():
+            # Update the inner frame's width to fill the canvas.
+            self.canvas.itemconfigure(self.interior_id, width=self.canvas.winfo_width())
+
+
+class RevealerTable:
+    """
+    Class for creating our table with structure:
+      ____________________________________________
+     |_____SSDP_Devices_____|________URL_______|__|
+     |                                            |
+     |                                            |
+     |                                            |
+     |____________________________________________|
+
+    """
+
+    EVEN_ROW_COLOR = "#e3e6e6"
+    HEADER_COLOR = "#bec0c0"
+
+    HEADER_TAG = "header"
+    ADDITIONAL_HEADER_TAG = "header_add"
+
+    BLANK_LINE_TAG = "blank"
+
+    lock = threading.Lock()
+
+    def __init__(self, master, col, row, height, left_click_url_func=None, right_click_func=None):
+        self.great_table = None
+        self.canvas = None
+
+        self.main_table = self.create_table(master, col, row, height)
+        self.left_click_func = left_click_url_func
+        self.right_click_func = right_click_func
+
+        # last added row
+        self.last_row = 1
+
+        # exist at least one legacy device
+        self.legacy_last_row = 0
+        self.legacy_header_row = 0
+
+        self.ssdp_dict = {}
+        self.legacy_dict = {}
+
+    def create_table(self, master, col, row, height):
+
+        # prepare frame for using with scrollbar
+        self.great_table = VerticalScrolledFrame(master, column=col, row=row, borderwidth=1, relief="solid",
+                                                 background='white',
+                                                 height=height, width=500)
+
+        # get object of the real frame to fill in with found devices
+        new_table = self.great_table.interior
+
+        # add headers
+        header_1 = Label(new_table, text="SSDP Devices", anchor="center", background=self.HEADER_COLOR)
+        header_1.grid(row=0, column=0, sticky="ew")
+        header_1.tag = self.HEADER_TAG
+
+        header_2 = ttk.Separator(new_table, takefocus=0, orient=VERTICAL)
+        header_2.grid(row=0, column=1, sticky="news")
+        header_2.tag = self.HEADER_TAG
+
+        header_3 = Label(new_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0)
+        header_3.grid(row=0, column=2, sticky="ew")
+        header_3.tag = self.HEADER_TAG
+
+        # configure columns to expand and separate line column to not expand
+        new_table.grid_columnconfigure(0, weight=1, minsize=200)
+        new_table.grid_columnconfigure(1, weight=0)
+        new_table.grid_columnconfigure(2, weight=1, minsize=200)
+
+        return new_table
+
+    def delete_all_rows(self):
+        self.last_row = 1
+        self.legacy_last_row = 0
+        self.legacy_header_row = 0
+
+        self.ssdp_dict = {}
+        self.legacy_dict = {}
+
+        for i in self.main_table.winfo_children():
+            if hasattr(i, 'tag'):
+                # destroy all children which is not header
+                if not i.tag == self.HEADER_TAG:
+                    i.destroy()
+            else:
+                # and if does not have any tag at all
+                i.destroy()
+
+    def add_row_ssdp_item(self, row, name, link, uuid, other_data, tag):
+
+        # we need to sort alphabetically at every moment
+        # so... ignore the new row i guess
+        self.ssdp_dict[name] = self.last_row
+
+        sorted_list = sorted(self.ssdp_dict)
+
+        alpha_row = sorted_list.index(name) + 1
+
+        if alpha_row < self.last_row:
+            self.move_table_rows(alpha_row)
+
+        # find correct color
+        if alpha_row % 2 == 0:
+            bg_color = self.EVEN_ROW_COLOR
+        else:
+            bg_color = "white"
+
+        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
+        middle.grid(row=alpha_row, column=1, sticky='news')
+        middle.tag = tag
+
+        if tag != "not_local":
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color, cursor='question_arrow',
+                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
+                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
+        else:
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color)
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color,
+                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
+
+        link.grid(row=alpha_row, column=2, sticky="ew")
+        device.grid(row=alpha_row, column=0, sticky="ew")
+
+        device.tag = tag
+        link.tag = tag
+
+        device.link = link['text']
+        link.link = link['text']
+
+        device.uuid = uuid
+        device.other_data = other_data
+
+        link.uuid = uuid
+        link.other_data = other_data
+
+        # bind double left click and right click
+        # bind left-click to 'open_link'
+        link.bind("<Button-1>", self.left_click_func)
+
+        # bind right-click to 'change_ip'
+        link.bind("<Button-3>", self.right_click_func)
+        device.bind("<Button-3>", self.right_click_func)
+
+        return
+
+    def move_table_rows(self, row_start, direction='down'):
+        """
+        Function moves every row of the main table to the next one since we need to sort our devices in the list.
+        :param row_start: int
+           First row to move.
+        :param direction: str
+           Direction of the movement of the rows. Can be 'up' or 'down'.
+        :return:
+        """
+
+        additional_row = 1
+
+        if direction == 'down':
+            additional_row = 1
+        elif direction == 'up':
+            additional_row = -1
+
+        for widget in self.main_table.winfo_children():
+            row = widget.grid_info()['row']
+            col = widget.grid_info()['column']
+            if row >= row_start:
+                widget.grid(column=col, row=row+additional_row)
+                if (self.legacy_last_row >= row > self.last_row or row <= self.last_row) and \
+                        widget.tag != self.ADDITIONAL_HEADER_TAG and widget.tag != self.BLANK_LINE_TAG:
+                    if (row+additional_row) > self.legacy_header_row:
+                        if (row+additional_row - self.legacy_header_row) % 2 == 0:
+                            widget["background"] = self.EVEN_ROW_COLOR
+                        else:
+                            widget["background"] = "white"
+                    else:
+                        if (row+additional_row) % 2 == 0:
+                            widget["background"] = self.EVEN_ROW_COLOR
+                        else:
+                            widget["background"] = "white"
+
+                if widget.tag == self.ADDITIONAL_HEADER_TAG and col == 0:
+                    self.legacy_header_row += additional_row
+
+    def add_row_old_item(self, name, link, tag):
+
+        # check if we have at least one old device in the list
+        if not self.legacy_last_row:
+
+            self.legacy_last_row = self.last_row +1
+
+            # add two blank lines
+            blank = Label(self.main_table, text="", anchor="w", background='white')
+            blank.grid(row=self.legacy_last_row, column=0, sticky="ew")
+            blank.tag = self.BLANK_LINE_TAG
+
+            blank = Frame(self.main_table, takefocus=0, background='white', width=2)
+            blank.grid(row=self.legacy_last_row, column=1, sticky="news")
+            blank.tag = self.BLANK_LINE_TAG
+
+            blank = Label(self.main_table, text="", anchor="w", background='white')
+            blank.grid(row=self.legacy_last_row, column=2, sticky="ew")
+            blank.tag = self.BLANK_LINE_TAG
+
+            blank = Label(self.main_table, text="", anchor="w", background='white')
+            blank.grid(row=self.legacy_last_row+1, column=0, sticky="ew")
+            blank.tag = self.BLANK_LINE_TAG
+
+            blank = blank = Frame(self.main_table, takefocus=0, background='white', width=2)
+            blank.grid(row=self.legacy_last_row+1, column=1, sticky="news")
+            blank.tag = self.BLANK_LINE_TAG
+
+            blank = Label(self.main_table, text="", anchor="w", background='white')
+            blank.grid(row=self.legacy_last_row+1, column=2, sticky="ew")
+            blank.tag = self.BLANK_LINE_TAG
+
+            # add additional header line
+            self.legacy_header_row = self.legacy_last_row+2
+
+            # add headers
+            header_1 = Label(self.main_table, text="Legacy Protocol Devices", anchor="center",
+                             background=self.HEADER_COLOR)
+            header_1.grid(row=self.legacy_header_row, column=0, sticky="ew")
+            header_1.tag = self.ADDITIONAL_HEADER_TAG
+
+            header_2 = ttk.Separator(self.main_table, takefocus=0, orient=VERTICAL)
+            header_2.grid(row=self.legacy_header_row, column=1, sticky="ns")
+            header_2.tag = self.ADDITIONAL_HEADER_TAG
+
+            header_3 = Label(self.main_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0)
+            header_3.grid(row=self.legacy_header_row, column=2, sticky="ew")
+            header_3.tag = self.ADDITIONAL_HEADER_TAG
+
+            self.legacy_last_row += 4
+
+        # we need to sort alphabetically at every moment
+        # so... ignore the new row i guess
+        self.legacy_dict[name] = self.legacy_last_row
+
+        sorted_list = sorted(self.legacy_dict)
+
+        alpha_row = sorted_list.index(name) + 1 + self.legacy_header_row
+
+        if alpha_row < self.legacy_last_row:
+            self.move_table_rows(alpha_row)
+
+        if (alpha_row - self.legacy_header_row) % 2 == 0:
+            bg_color = self.EVEN_ROW_COLOR
+        else:
+            bg_color = "white"
+
+        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
+        middle.grid(row=alpha_row, column=1, sticky="news")
+        middle.tag = tag
+
+        if tag != "not_local":
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color,
+                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
+                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
+        else:
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color)
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color,
+                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
+
+        link.grid(row=alpha_row, column=2, sticky="ew")
+        device.grid(row=alpha_row, column=0, sticky="ew")
+
+        device.tag = tag
+        link.tag = tag
+
+        device.link = link['text']
+        link.link = link['text']
+
+        # bind left-click to 'open_link'
+        link.bind("<Button-1>", self.left_click_func)
+
+        self.legacy_last_row += 1
+
+        return
+
+    def delete_table_row(self, del_row):
+        for widget in self.main_table.winfo_children():
+            row = widget.grid_info()['row']
+            col = widget.grid_info()['column']
+            if row == del_row:
+                print(widget['text'], row, "DELETE")
+                widget.destroy()
+
+        self.move_table_rows(del_row+1, direction='up')
+
+
 class Revealer2:
     SSDP_HEADER_HTTP = "http"
     SSDP_HEADER_SERVER = "server"
@@ -31,8 +432,6 @@ class Revealer2:
 
     DEVICE_TYPE_OUR = 0
     DEVICE_TYPE_OTHER = 1
-
-    EVEN_ROW_COLOR = "#f3f6f6"
 
     # To add support of our new device add it in ths dictionary
     #
@@ -89,7 +488,8 @@ class Revealer2:
 
         self.root.bind("<Return>", self.ssdp_search)
 
-        self.main_table = self.create_table(mainframe, col=0, row=1, height=300)
+        self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link,
+                                        right_click_func=self.do_popup)
 
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
@@ -98,53 +498,17 @@ class Revealer2:
         self.event = None
 
     def start_thread_search(self):
+        # self.search_thread.add_task(self.ssdp_search)
+        # self.search_thread.add_task(self.old_search_task)
+
+        # remove everything from our table
+        self.main_table.delete_all_rows()
+
         search_thread = threading.Thread(target=self.ssdp_search)
+        old_search_thread = threading.Thread(target=self.old_search_task)
+
         search_thread.start()
-
-    def create_table(self, master, col, row, height):
-        # try with frame for title and tree together
-        frame = Frame(master, borderwidth=1, relief="solid", background='white', height=height, width=500)
-        frame.grid(column=col, row=row, sticky='nsew')
-        frame.grid_rowconfigure(1, weight=1)
-        frame.grid_columnconfigure(0, weight=1)
-
-        frame.grid_propagate(False)
-
-        header_color = "#dee0e0"
-
-        new_table = Frame(frame, background=header_color)
-        new_table.grid(column=0, row=0, sticky='nsew')
-
-        #scrollbar = Scrollbar(frame, orient="vertical")
-        #scrollbar.grid(column=1, row=0, sticky='ns')
-
-        # Label(new_table, text="#", anchor="w", width=0).grid(row=0, column=0, sticky="ew")
-        header_1 = Label(new_table, text="Device", anchor="center", background=header_color)
-        header_1.grid(row=0, column=0, sticky="ew")
-        header_1.header = "yes"
-
-        header_2 = ttk.Separator(new_table, takefocus=0, orient=VERTICAL)
-        header_2.grid(row=0, column=1, sticky="ns")
-        header_2.header = "yes"
-
-        header_3 = Label(new_table, text="URL", anchor="center", background=header_color, height=0)
-        header_3.grid(row=0, column=2, sticky="ew")
-        header_3.header = "yes"
-
-        print(header_3['height'])
-
-        new_table.grid_columnconfigure(0, weight=1, minsize=100)
-        new_table.grid_columnconfigure(1, weight=0)
-        new_table.grid_columnconfigure(2, weight=1, minsize=100)
-
-        # bind double left click and right click
-        # bind left-click to 'open_link'
-        new_table.bind("<Button-1>", self.open_link)
-
-        # bind right-click to 'change_ip'
-        new_table.bind("<Button-3>", self.do_popup)
-
-        return new_table
+        old_search_thread.start()
 
     def find_ssdp_enhanced_device(self, device_name):
         index = 0
@@ -160,45 +524,6 @@ class Revealer2:
     def do_popup(self, event):
         self.event = event
         tree = self.event.widget  # get the treeview widget
-        if tree.winfo_class() == 'Treeview':
-            region = tree.identify_region(self.event.x, self.event.y)
-            iid = tree.identify('item', self.event.x, self.event.y)
-            tags = tree.item(iid)['tags'][0]
-            uuid = tree.item(iid)['values'][3]
-
-            # test
-            menu = Menu(self.root, tearoff=0)
-
-            if region == 'cell':
-                try:
-                    if tags == "local":
-                        menu.add_command(label="Open web-page", command=self.open_link)
-                        menu.add_separator()
-                        menu.add_command(label="Properties", command=self.view_prop)
-                        menu.tk_popup(event.x_root, event.y_root)
-                    elif tags == "not_local" and uuid != "":
-                        menu.delete(0, 2)
-                        menu.add_command(label="Change settings...", command=self.change_ip_click)
-                        menu.add_separator()
-                        menu.add_command(label="Properties", command=self.view_prop)
-                        menu.tk_popup(event.x_root, event.y_root)
-                    elif tags == "not_local":
-                        menu.delete(0, 2)
-                        menu.add_command(label="Change settings...", command=self.change_ip_click)
-                        menu.entryconfig(1, state=DISABLED)
-                        menu.add_separator()
-                        menu.add_command(label="Properties", command=self.view_prop)
-                        menu.tk_popup(event.x_root, event.y_root)
-                    elif tags == "old_local":
-                        menu.delete(0, 2)
-                        menu.add_command(label="Open web-page", command=self.open_link)
-                        menu.add_separator()
-                        menu.add_command(label="Properties", command=self.view_prop)
-                        menu.entryconfig(2, state=DISABLED)
-                        menu.tk_popup(event.x_root, event.y_root)
-
-                finally:
-                    menu.grab_release()
 
         if tree.winfo_class() == 'Label':
             menu = Menu(self.root, tearoff=0)
@@ -206,8 +531,8 @@ class Revealer2:
             try:
                 tags = tree.tag
                 if tags == "local":
-                    menu.add_command(label="Open web-page", command=self.open_link)
-                    menu.add_separator()
+                    # menu.add_command(label="Open web-page", command=self.open_link)
+                    # menu.add_separator()
                     menu.add_command(label="Properties", command=self.view_prop)
                     menu.tk_popup(event.x_root, event.y_root)
                 elif tags == "not_local":  # and uuid != "":
@@ -305,86 +630,6 @@ class Revealer2:
                 else:
                     print("Can't open this link.")
 
-    def add_row_item(self, row, name, link, uuid, other_data, tag):
-
-        if row % 2 == 0:
-            bg_color = self.EVEN_ROW_COLOR
-        else:
-            bg_color = "white"
-
-        Label(self.main_table, text="", anchor="w", background=bg_color).grid(row=row, column=1, sticky="ns")
-
-        if tag != "not_local":
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color, font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
-                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
-        else:
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color)
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color,
-                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
-
-        link.grid(row=row, column=2, sticky="ew")
-        device.grid(row=row, column=0, sticky="ew")
-
-        device.tag = tag
-        link.tag = tag
-
-        device.link = link['text']
-        link.link = link['text']
-
-        device.uuid = uuid
-        device.other_data = other_data
-
-        link.uuid = uuid
-        link.other_data = other_data
-
-        # bind double left click and right click
-        # bind left-click to 'open_link'
-        link.bind("<Button-1>", self.open_link)
-
-        # bind right-click to 'change_ip'
-        link.bind("<Button-3>", self.do_popup)
-        device.bind("<Button-3>", self.do_popup)
-
-        return
-
-    def move_table_rows(self, row_start, direction='down'):
-        """
-        Function moves every row of the main table to the next one since we need to sort our devices in the list.
-        :param row_start: int
-           First row to move.
-        :param direction: str
-           Direction of the movement of the rows. Can be 'up' or 'down'.
-        :return:
-        """
-
-        additional_row = 1
-
-        if direction == 'down':
-            additional_row = 1
-        elif direction == 'up':
-            additional_row = -1
-
-        for widget in self.main_table.winfo_children():
-            row = widget.grid_info()['row']
-            col = widget.grid_info()['column']
-            if row >= row_start:
-                widget.grid(column=col, row=row+additional_row)
-                if (row+additional_row) % 2 == 0:
-                    widget["background"] = self.EVEN_ROW_COLOR
-                else:
-                    widget["background"] = "white"
-
-    def delete_table_row(self, del_row):
-        for widget in self.main_table.winfo_children():
-            row = widget.grid_info()['row']
-            col = widget.grid_info()['column']
-            if row == del_row:
-                print(widget['text'], row, "DELETE")
-                widget.destroy()
-
-        self.move_table_rows(del_row+1, direction='up')
-
     def ssdp_search(self):
         # M-Search message body
         message = \
@@ -394,22 +639,6 @@ class Revealer2:
             'MX:1\r\n' \
             'MAN:"ssdp:discover"\r\n' \
             '\r\n'
-
-        # remove everything from our tree
-        """for i in self.our_tree.get_children():
-            self.our_tree.delete(i)
-
-        self.our_tree.update()"""
-
-        for i in self.main_table.winfo_children():
-            if not hasattr(i, "header"):
-                i.destroy()
-
-        # remove everything from tree of other devices
-        # for i in self.else_tree.get_children():
-        #   self.else_tree.delete(i)
-
-        # self.else_tree.update()
 
         self.button["state"] = "disabled"
         self.button["text"] = "Searching..."
@@ -486,8 +715,12 @@ class Revealer2:
 
                                 xml_dict["version"] = data_dict["version"]
 
-                                self.add_row_item(device_number[type_device] + 1, xml_dict["friendlyName"],
-                                                  link, "", xml_dict, tag="local")
+                                with self.main_table.lock:
+                                    self.main_table.move_table_rows(self.main_table.last_row)
+                                    self.main_table.add_row_ssdp_item(self.main_table.last_row, xml_dict["friendlyName"],
+                                                                      link, "", xml_dict, tag="local")
+
+                                    self.main_table.last_row += 1
                             else:
                                 uuid = data_dict["uuid"]
 
@@ -505,17 +738,24 @@ class Revealer2:
                                     elif current_version_array[2] < version_with_settings_array[2]:
                                         uuid = ""
 
-                                self.add_row_item(device_number[type_device] + 1, data_dict["server"],
-                                                  data_dict["ssdp_url"], uuid, data_dict, tag="not_local")
+                                with self.main_table.lock:
+                                    self.main_table.move_table_rows(self.main_table.last_row)
+                                    self.main_table.add_row_ssdp_item(self.main_table.last_row, data_dict["server"],
+                                                      data_dict["ssdp_url"], uuid, data_dict, tag="not_local")
+
+                                    # configure main table appearence
+                                    self.main_table.great_table.canvas.itemconfigure(self.main_table.great_table.interior_id, width=self.main_table.great_table.canvas.winfo_width())
+
+                                    self.main_table.last_row += 1
 
                             device_number[type_device] += 1
 
                 except socket.timeout:
                     sock.close()
                     # pass
-                    old_devices = self.old_search(devices, device_number[Revealer2.DEVICE_TYPE_OUR], ip.ip)
-                    for device in old_devices:
-                        devices.add(device)
+                    # old_devices = self.old_search(devices, device_number[Revealer2.DEVICE_TYPE_OUR], ip.ip)
+                    # for device in old_devices:
+                      #  devices.add(device)
 
         self.button["state"] = "normal"
         self.button["text"] = "Search"
@@ -669,7 +909,7 @@ class Revealer2:
         # if we received an answer - we have not broken the device (at least)
         # so delete it from the list
         if len(devices) > 0:
-            self.delete_table_row(row)
+            self.main_table.delete_table_row(row)
 
             mb.showinfo(
                 "Change settings...",
@@ -746,6 +986,77 @@ class Revealer2:
             # print('can\'t open')
             return title
 
+    def old_search_old(self, ssdp_devices, device_number):
+        """
+        Perform old version of searching devices in the local network as in the revealer 0.1.0
+        Sends multicast packet with special string and listen for the answers.
+        :return:
+        """
+
+        ssdp_device_number = device_number
+
+        devices = set()
+
+        interfaces = socket.getaddrinfo(host=socket.gethostname(), port=None, family=socket.AF_INET)
+        allips = [ip[4][0] for ip in interfaces]
+
+        adapters = ifaddr.get_adapters()
+
+        device_number = [0, 0]
+
+        for adapter in adapters:
+            for ip in adapter.ips:
+                if not isinstance(ip.ip, str):
+                    continue
+
+                if ip.ip == '127.0.0.1':
+                    continue
+
+                # Send M-Search message to multicast address for UPNP
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                try:
+                    sock.bind((ip.ip, 0))
+                except:
+                    # print('   Can\'t bind to this ip')
+                    continue
+
+                try:
+                    message = "DISCOVER_CUBIELORD_REQUEST " + str(sock.getsockname()[1])
+                except:
+                    print('error while getting socket port number')
+                    return None
+
+                sock.settimeout(0.5)
+                try:
+                    sock.sendto(message.encode('utf-8'), ("255.255.255.255", 8008))
+                except OSError as err:
+                    print(err)
+                    continue
+
+                # listen and capture returned responses
+                try:
+                    while True:
+                        data, addr = sock.recvfrom(8192)
+                        if addr[0] not in devices and addr[0] not in ssdp_devices:
+                            devices.add(addr[0])
+
+                            title = addr[0]
+
+                            with self.main_table.lock:
+                                self.main_table.add_row_old_item(title,
+                                                      "http://" + addr[0], tag="old_local")
+
+                            ssdp_device_number += 1
+
+                except socket.timeout:
+                    sock.close()
+                    if len(devices) > 0:
+                        break
+                    pass
+
+        return devices
+
     def old_search(self, ssdp_devices, device_number, ip):
         """
         Perform old version of searching devices in the local network as in the revealer 0.1.0
@@ -790,9 +1101,9 @@ class Revealer2:
 
                     title = "Device undefined (legacy protocol)"
 
-                    self.move_table_rows(ssdp_device_number+1)
+                    self.main_table.move_table_rows(ssdp_device_number+1)
 
-                    self.add_row_item(ssdp_device_number + 1, title,
+                    self.main_table.add_row_item(ssdp_device_number + 1, title,
                                       "http://" + addr[0] + ":8080", "", "", tag="old_local")
 
                     ssdp_device_number += 1
@@ -802,6 +1113,9 @@ class Revealer2:
             pass
 
         return devices
+
+    def old_search_task(self):
+        self.old_search_old({}, 1)
 
 
 class MIPASDialog(sd.Dialog):
