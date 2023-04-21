@@ -3,6 +3,8 @@ from tkinter import ttk, font
 import tkinter.messagebox as mb
 import tkinter.simpledialog as sd
 
+# from PIL import Image, ImageTk
+
 import socket
 import ifaddr
 import webbrowser as wb
@@ -77,6 +79,8 @@ class VerticalScrolledFrame(Frame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        self.propagate(False)
+
         # Create a canvas object and a vertical scrollbar for scrolling it.
         self.vscrollbar = AutoScrollbar(self, orient=VERTICAL)
         self.vscrollbar.grid(column=1, row=0, sticky='ns')
@@ -93,9 +97,14 @@ class VerticalScrolledFrame(Frame):
         self.canvas.xview_moveto(0)
         self.canvas.yview_moveto(0)
 
+        self.canvas.propagate(False)
+
         # Create a frame inside the canvas which will be scrolled with it.
         self.interior = Frame(self.canvas)
         self.interior.grid(column=0, row=0, sticky='news')
+
+        self.interior.propagate(False)
+
         self.interior.bind('<Configure>', self._configure_interior)
         self.canvas.bind('<Configure>', self._configure_canvas)
         self.interior_id = self.canvas.create_window(0, 0, window=self.interior, anchor=NW)
@@ -145,8 +154,9 @@ class RevealerTable:
 
     """
 
-    EVEN_ROW_COLOR = "#e3e6e6"
-    HEADER_COLOR = "#bec0c0"
+    EVEN_ROW_COLOR = "#eAeFeF"
+    # EVEN_ROW_COLOR = "yellow"
+    HEADER_COLOR = "#ced0d0"
 
     HEADER_TAG = "header"
     ADDITIONAL_HEADER_TAG = "header_add"
@@ -155,13 +165,15 @@ class RevealerTable:
 
     lock = threading.Lock()
 
-    def __init__(self, master, col, row, height, left_click_url_func=None, right_click_func=None):
+    def __init__(self, master, col, row, height, left_click_url_func=None, right_click_func=None, settings_func=None,
+                 properties_view_func=None):
         self.great_table = None
-        self.canvas = None
 
         self.main_table = self.create_table(master, col, row, height)
         self.left_click_func = left_click_url_func
         self.right_click_func = right_click_func
+        self.settings_func = settings_func
+        self.properties_view_func = properties_view_func
 
         # last added row
         self.last_row = 1
@@ -196,10 +208,22 @@ class RevealerTable:
         header_3.grid(row=0, column=2, sticky="ew")
         header_3.tag = self.HEADER_TAG
 
+        header_4 = ttk.Separator(new_table, takefocus=0, orient=VERTICAL)
+        header_4.grid(row=0, column=3, sticky="news")
+        header_4.tag = self.HEADER_TAG
+
+        header_5 = Frame(new_table, background=self.HEADER_COLOR, width=21)
+        header_5.grid(row=0, column=4, sticky="news")
+        header_5.tag = self.HEADER_TAG
+
         # configure columns to expand and separate line column to not expand
         new_table.grid_columnconfigure(0, weight=1, minsize=200)
-        new_table.grid_columnconfigure(1, weight=0)
+        new_table.grid_columnconfigure(1, weight=0)  # separator
         new_table.grid_columnconfigure(2, weight=1, minsize=200)
+        new_table.grid_columnconfigure(3, weight=0)  # separator
+        new_table.grid_columnconfigure(4, weight=0, minsize=21)  # settings button
+
+        new_table.configure(background='white')
 
         return new_table
 
@@ -220,7 +244,7 @@ class RevealerTable:
                 # and if does not have any tag at all
                 i.destroy()
 
-    def add_row_ssdp_item(self, row, name, link, uuid, other_data, tag):
+    def add_row_ssdp_item(self, name, link, uuid, other_data, tag):
 
         # we need to sort alphabetically at every moment
         # so... ignore the new row i guess
@@ -243,8 +267,12 @@ class RevealerTable:
         middle.grid(row=alpha_row, column=1, sticky='news')
         middle.tag = tag
 
+        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
+        middle.grid(row=alpha_row, column=3, sticky='news')
+        middle.tag = tag
+
         if tag != "not_local":
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color, cursor='question_arrow',
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color,
                            font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
             link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
@@ -267,6 +295,28 @@ class RevealerTable:
 
         link.uuid = uuid
         link.other_data = other_data
+
+        # add settings button
+
+        if uuid is None:
+            # blank_settings = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
+            # blank_settings.grid(row=alpha_row, column=4, sticky='news')
+            # blank_settings.tag = tag
+
+            ButtonSettings(self.main_table, col=4, row=alpha_row,
+                           command_change=lambda: self.settings_func(alpha_row, name, uuid),
+                           command_view=lambda: self.properties_view_func(other_data, link['text']),
+                           bg_color=bg_color, width=1, tag=tag, type=Revealer2.DEVICE_TYPE_OTHER)
+        elif uuid != "":
+            ButtonSettings(self.main_table, col=4, row=alpha_row,
+                           command_change=lambda: self.settings_func(alpha_row, name, uuid),
+                           command_view=lambda: self.properties_view_func(other_data, link['text']),
+                           bg_color=bg_color, width=1, tag=tag, type=Revealer2.DEVICE_TYPE_OUR)
+        else:
+            ButtonSettings(self.main_table, col=4, row=alpha_row,
+                           command_change=lambda: self.settings_func(alpha_row, name, uuid),
+                           command_view=lambda: self.properties_view_func(other_data, link['text']),
+                           bg_color=bg_color, width=1, tag=tag, state="disabled", type=Revealer2.DEVICE_TYPE_OUR)
 
         # bind double left click and right click
         # bind left-click to 'open_link'
@@ -305,13 +355,21 @@ class RevealerTable:
                     if (row+additional_row) > self.legacy_header_row:
                         if (row+additional_row - self.legacy_header_row) % 2 == 0:
                             widget["background"] = self.EVEN_ROW_COLOR
+                            if hasattr(widget, 'button'):
+                                widget.button.change_button_color(self.EVEN_ROW_COLOR)
                         else:
                             widget["background"] = "white"
+                            if hasattr(widget, 'button'):
+                                widget.button.change_button_color("white")
                     else:
                         if (row+additional_row) % 2 == 0:
                             widget["background"] = self.EVEN_ROW_COLOR
+                            if hasattr(widget, 'button'):
+                                widget.button.change_button_color(self.EVEN_ROW_COLOR)
                         else:
                             widget["background"] = "white"
+                            if hasattr(widget, 'button'):
+                                widget.button.change_button_color("white")
 
                 if widget.tag == self.ADDITIONAL_HEADER_TAG and col == 0:
                     self.legacy_header_row += additional_row
@@ -336,16 +394,32 @@ class RevealerTable:
             blank.grid(row=self.legacy_last_row, column=2, sticky="ew")
             blank.tag = self.BLANK_LINE_TAG
 
+            blank = Frame(self.main_table, takefocus=0, background='white', width=2)
+            blank.grid(row=self.legacy_last_row, column=3, sticky="news")
+            blank.tag = self.BLANK_LINE_TAG
+
+            blank = Frame(self.main_table, takefocus=0, background='white', width=2)
+            blank.grid(row=self.legacy_last_row, column=4, sticky="news")
+            blank.tag = self.BLANK_LINE_TAG
+
             blank = Label(self.main_table, text="", anchor="w", background='white')
             blank.grid(row=self.legacy_last_row+1, column=0, sticky="ew")
             blank.tag = self.BLANK_LINE_TAG
 
-            blank = blank = Frame(self.main_table, takefocus=0, background='white', width=2)
+            blank = Frame(self.main_table, takefocus=0, background='white', width=2)
             blank.grid(row=self.legacy_last_row+1, column=1, sticky="news")
             blank.tag = self.BLANK_LINE_TAG
 
             blank = Label(self.main_table, text="", anchor="w", background='white')
             blank.grid(row=self.legacy_last_row+1, column=2, sticky="ew")
+            blank.tag = self.BLANK_LINE_TAG
+
+            blank = Frame(self.main_table, takefocus=0, background='white', width=2)
+            blank.grid(row=self.legacy_last_row + 1, column=3, sticky="news")
+            blank.tag = self.BLANK_LINE_TAG
+
+            blank = Frame(self.main_table, takefocus=0, background='white', width=2)
+            blank.grid(row=self.legacy_last_row + 1, column=4, sticky="news")
             blank.tag = self.BLANK_LINE_TAG
 
             # add additional header line
@@ -364,6 +438,14 @@ class RevealerTable:
             header_3 = Label(self.main_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0)
             header_3.grid(row=self.legacy_header_row, column=2, sticky="ew")
             header_3.tag = self.ADDITIONAL_HEADER_TAG
+
+            header_4 = ttk.Separator(self.main_table, takefocus=0, orient=VERTICAL)
+            header_4.grid(row=self.legacy_header_row, column=3, sticky="ns")
+            header_4.tag = self.ADDITIONAL_HEADER_TAG
+
+            blank = Frame(self.main_table, takefocus=0, background=self.HEADER_COLOR, width=2)
+            blank.grid(row=self.legacy_header_row, column=4, sticky="news")
+            blank.tag = self.BLANK_LINE_TAG
 
             self.legacy_last_row += 4
 
@@ -387,6 +469,10 @@ class RevealerTable:
         middle.grid(row=alpha_row, column=1, sticky="news")
         middle.tag = tag
 
+        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
+        middle.grid(row=alpha_row, column=3, sticky="news")
+        middle.tag = tag
+
         if tag != "not_local":
             device = Label(self.main_table, text=name, anchor="w", background=bg_color,
                            font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
@@ -406,6 +492,10 @@ class RevealerTable:
         device.link = link['text']
         link.link = link['text']
 
+        blank_settings = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
+        blank_settings.grid(row=alpha_row, column=4, sticky='news')
+        blank_settings.tag = tag
+
         # bind left-click to 'open_link'
         link.bind("<Button-1>", self.left_click_func)
 
@@ -418,7 +508,6 @@ class RevealerTable:
             row = widget.grid_info()['row']
             col = widget.grid_info()['column']
             if row == del_row:
-                print(widget['text'], row, "DELETE")
                 widget.destroy()
 
         self.move_table_rows(del_row+1, direction='up')
@@ -445,7 +534,7 @@ class Revealer2:
     SSDP_ENHANCED_DEVICES = [
         SSDPEnhancedDevice(
             ssdp_device_name="8SMC5-USB",
-            enhanced_ssdp_support_min_fw="4.7.8",
+            enhanced_ssdp_support_min_fw="4.7.9",
             enhanced_ssdp_version="1.0.0"
         ),
         SSDPEnhancedDevice(
@@ -455,7 +544,7 @@ class Revealer2:
         ),
         SSDPEnhancedDevice(
             ssdp_device_name="mDrive",
-            enhanced_ssdp_support_min_fw="4.7.8",
+            enhanced_ssdp_support_min_fw="4.7.9",
             enhanced_ssdp_version="1.0.0"
         )
     ]
@@ -466,6 +555,12 @@ class Revealer2:
         self.root.title("Revealer " + Version.full)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+
+        self.root.propagate(False)
+
+        self.root.geometry("580x400")
+
+        self.root.minsize(width=500, height=200)
 
         # add revealer icon
         try:
@@ -480,7 +575,9 @@ class Revealer2:
         # mainframe.grid_rowconfigure(2, weight=1)
         mainframe.grid_columnconfigure(0, weight=1)
 
-        mainframe.pack(fill='both', expand="yes")
+        # mainframe.pack(fill='both', expand="yes")
+
+        mainframe.propagate(False)
 
         # add Search-button
         self.button = ttk.Button(mainframe, text="Search", command=self.start_thread_search)
@@ -488,8 +585,8 @@ class Revealer2:
 
         self.root.bind("<Return>", self.ssdp_search)
 
-        self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link,
-                                        right_click_func=self.do_popup)
+        self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link, settings_func=self.change_ip_click,
+                                        properties_view_func=self.view_prop)
 
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
@@ -521,45 +618,21 @@ class Revealer2:
 
         return None
 
-    def do_popup(self, event):
-        self.event = event
-        tree = self.event.widget  # get the treeview widget
-
-        if tree.winfo_class() == 'Label':
-            menu = Menu(self.root, tearoff=0)
-
+    def view_prop(self, prop_dict, link):
+        try:
+            # if we have local SSDP device
+            name = prop_dict['friendlyName']
+            PropDialog(name, prop_dict, link, parent=self.root)
+        except KeyError:
             try:
-                tags = tree.tag
-                if tags == "local":
-                    # menu.add_command(label="Open web-page", command=self.open_link)
-                    # menu.add_separator()
-                    menu.add_command(label="Properties", command=self.view_prop)
-                    menu.tk_popup(event.x_root, event.y_root)
-                elif tags == "not_local":  # and uuid != "":
-                    menu.delete(0, 2)
-                    menu.add_command(label="Change settings...", command=self.change_ip_click)
-                    menu.add_separator()
-                    menu.add_command(label="Properties", command=self.view_prop)
-                    menu.tk_popup(event.x_root, event.y_root)
-                elif tags == "not_local":
-                    menu.delete(0, 2)
-                    menu.add_command(label="Change settings...", command=self.change_ip_click)
-                    menu.entryconfig(1, state=DISABLED)
-                    menu.add_separator()
-                    menu.add_command(label="Properties", command=self.view_prop)
-                    menu.tk_popup(event.x_root, event.y_root)
-                elif tags == "old_local":
-                    menu.delete(0, 2)
-                    menu.add_command(label="Open web-page", command=self.open_link)
-                    menu.add_separator()
-                    menu.add_command(label="Properties", command=self.view_prop)
-                    menu.entryconfig(2, state=DISABLED)
-                    menu.tk_popup(event.x_root, event.y_root)
+                # if we have not local SSDP device
+                name = prop_dict['server']
+                PropDialog(name, prop_dict, link, parent=self.root)
+            except KeyError:
+                print('No properties for this device')
+                pass
 
-            finally:
-                menu.grab_release()
-
-    def view_prop(self):
+    def view_prop_old(self):
         tree = self.event.widget  # get the treeview widget
 
         if tree.winfo_class() == "Treeview":
@@ -684,6 +757,7 @@ class Revealer2:
 
                         # if we have not received this location before
                         if not data_dict["ssdp_url"] in devices:
+
                             devices.add(data_dict["ssdp_url"])
 
                             xml_dict = self.parse_upnp_xml(data_dict["location"])
@@ -699,29 +773,6 @@ class Revealer2:
                                 version_with_settings = self.SSDP_ENHANCED_DEVICES[device_index_in_list].enhanced_ssdp_support_min_fw
                                 type_device = Revealer2.DEVICE_TYPE_OUR
                                 device_number[Revealer2.DEVICE_TYPE_OTHER] += 1
-                            else:
-                                version_with_settings = ""
-                                type_device = Revealer2.DEVICE_TYPE_OTHER
-                                pass
-
-                            if xml_dict is not None:
-                                link = ""
-
-                                # check that we have our url with correct format
-                                if xml_dict["presentationURL"][0:4] != "http":
-                                    link = "http://" + addr[0] + xml_dict["presentationURL"]
-                                else:
-                                    link = xml_dict["presentationURL"]
-
-                                xml_dict["version"] = data_dict["version"]
-
-                                with self.main_table.lock:
-                                    self.main_table.move_table_rows(self.main_table.last_row)
-                                    self.main_table.add_row_ssdp_item(self.main_table.last_row, xml_dict["friendlyName"],
-                                                                      link, "", xml_dict, tag="local")
-
-                                    self.main_table.last_row += 1
-                            else:
                                 uuid = data_dict["uuid"]
 
                                 # we need to check that if we have our device it supports setting settings via multicast
@@ -738,13 +789,31 @@ class Revealer2:
                                     elif current_version_array[2] < version_with_settings_array[2]:
                                         uuid = ""
 
+                            else:
+                                type_device = Revealer2.DEVICE_TYPE_OTHER
+                                uuid = None
+                                pass
+
+                            if xml_dict is not None:
+                                # check that we have our url with correct format
+                                if xml_dict["presentationURL"][0:4] != "http":
+                                    link = "http://" + addr[0] + xml_dict["presentationURL"]
+                                else:
+                                    link = xml_dict["presentationURL"]
+
+                                xml_dict["version"] = data_dict["version"]
+
                                 with self.main_table.lock:
                                     self.main_table.move_table_rows(self.main_table.last_row)
-                                    self.main_table.add_row_ssdp_item(self.main_table.last_row, data_dict["server"],
-                                                      data_dict["ssdp_url"], uuid, data_dict, tag="not_local")
+                                    self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
+                                                                      link, uuid, xml_dict, tag="local")
 
-                                    # configure main table appearence
-                                    self.main_table.great_table.canvas.itemconfigure(self.main_table.great_table.interior_id, width=self.main_table.great_table.canvas.winfo_width())
+                                    self.main_table.last_row += 1
+                            else:
+                                with self.main_table.lock:
+                                    self.main_table.move_table_rows(self.main_table.last_row)
+                                    self.main_table.add_row_ssdp_item(data_dict["server"],
+                                                      data_dict["ssdp_url"], uuid, data_dict, tag="not_local")
 
                                     self.main_table.last_row += 1
 
@@ -829,7 +898,7 @@ class Revealer2:
             # print('can\'t open')
             return None
 
-    def change_ip_multicast(self, row, uuid, new_ip, net_mask='255.255.0.0'):
+    def change_ip_multicast(self, row, uuid, settings_dict):
         """
         Function for changing device's net settings (IP address and network mask) via multicast. We are using same
         protocol as for SSDP M-SEARCH but setting its aim as desired device's UUID and add new header in format:
@@ -840,9 +909,8 @@ class Revealer2:
 
         :param uuid: string
             UUID of the device net settings of which should be modified.
-        :param new_ip: string
-            New IP address for this device
-        :param net_mask: string
+        :param settings_dict: dict
+            Dictionary with password and new settings for this device.
 
         :return:
         """
@@ -854,8 +922,10 @@ class Revealer2:
             'ST:uuid:' + uuid + '\r\n' \
                                 'MX:2\r\n' \
                                 'MAN:"ssdp:discover"\r\n' \
-                                'MIPAS:' + new_ip + ';' + net_mask + ';\r\n' \
-                                                                     '\r\n'
+                                'MIPAS:' + settings_dict['password'] + ';' + str(settings_dict['dhcp']) + ';'\
+                                + settings_dict['ip'] + ';' + settings_dict['netmask'] + ';'\
+                                + settings_dict['gateway'] + ';\r\n' \
+                                '\r\n'
 
         self.button["state"] = "disabled"
         self.button["text"] = "Search"
@@ -931,44 +1001,22 @@ class Revealer2:
         self.button["text"] = "Search"
         self.button.update()
 
-    def change_ip_click(self):
-        tree = self.event.widget  # get the treeview widget
+    def change_ip_click(self, row, name, uuid):
+        """
+        Function for starting IP-address changin by clicking the button.
+        :return: None
+        """
 
-        if tree.winfo_class() == "Treeview":
-            region = tree.identify_region(self.event.x, self.event.y)
-            col = tree.identify_column(self.event.x)
-            iid = tree.identify('item', self.event.x, self.event.y)
-            if region == 'cell':
-                device = tree.item(iid)['values'][1]  # get the link from the selected row
-                uuid = tree.item(iid)['values'][3]
-                tags = tree.item(iid)['tags'][0]
-                if tags != "local":
-                    # print(tree.item(iid)['values'][3])
-                    # test window
-                    dialog = MIPASDialog("Change settings...", device, uuid, parent=self.root)
-                    if dialog.result is not None:
-                        try:
-                            ip, net_mask = dialog.result
-                            print(ip, net_mask)
+        dialog = MIPASDialog("Change settings...", name, uuid, parent=self.root)
+        if dialog.result is not None:
+            try:
+                new_settings = dialog.result
+                print(new_settings)
 
-                            # request changing net settings
-                            self.change_ip_multicast(iid, uuid, ip, net_mask)
-                        except ValueError as err:
-                            print(f"In values there were some error: {dialog.result}")
-
-        elif tree.winfo_class() == "Label":
-            if hasattr(tree, "link") and hasattr(tree, "tag") and hasattr(tree, "uuid"):
-                if tree.tag == "not_local":
-                    dialog = MIPASDialog("Change settings...", tree.other_data["server"], tree.uuid, parent=self.root)
-                    if dialog.result is not None:
-                        try:
-                            ip, net_mask = dialog.result
-                            print(ip, net_mask)
-
-                            # request changing net settings
-                            self.change_ip_multicast(tree.grid_info()["row"], tree.uuid, ip, net_mask)
-                        except ValueError as err:
-                            print(f"In values there were some error: {dialog.result}")
+                # request changing net settings
+                self.change_ip_multicast(row, uuid, new_settings)
+            except ValueError as err:
+                print(f"In values there were some error: {dialog.result}")
 
     @staticmethod
     def get_page_title(url):
@@ -986,7 +1034,7 @@ class Revealer2:
             # print('can\'t open')
             return title
 
-    def old_search_old(self, ssdp_devices, device_number):
+    def old_search(self, ssdp_devices, device_number):
         """
         Perform old version of searching devices in the local network as in the revealer 0.1.0
         Sends multicast packet with special string and listen for the answers.
@@ -1025,7 +1073,7 @@ class Revealer2:
                     message = "DISCOVER_CUBIELORD_REQUEST " + str(sock.getsockname()[1])
                 except:
                     print('error while getting socket port number')
-                    return None
+                    continue
 
                 sock.settimeout(0.5)
                 try:
@@ -1044,8 +1092,7 @@ class Revealer2:
                             title = addr[0]
 
                             with self.main_table.lock:
-                                self.main_table.add_row_old_item(title,
-                                                      "http://" + addr[0], tag="old_local")
+                                self.main_table.add_row_old_item(title, "http://" + addr[0], tag="old_local")
 
                             ssdp_device_number += 1
 
@@ -1057,82 +1104,96 @@ class Revealer2:
 
         return devices
 
-    def old_search(self, ssdp_devices, device_number, ip):
-        """
-        Perform old version of searching devices in the local network as in the revealer 0.1.0
-        Sends multicast packet with special string and listen for the answers.
-        :return:
-        """
-
-        ssdp_device_number = device_number
-
-        devices = set()
-
-        # Send M-Search message to multicast address for UPNP
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        try:
-            sock.bind((ip, 0))
-        except:
-            # print('   Can\'t bind to this ip')
-            return devices
-
-        try:
-            message = "DISCOVER_CUBIELORD_REQUEST " + str(sock.getsockname()[1])
-        except:
-            print('error while getting socket port number')
-            return devices
-
-        sock.settimeout(0.5)
-        try:
-            sock.sendto(message.encode('utf-8'), ("255.255.255.255", 8008))
-        except OSError as err:
-            print(err)
-            return devices
-
-        # listen and capture returned responses
-        try:
-            while True:
-                data, addr = sock.recvfrom(8192)
-                if addr[0] not in devices and addr[0] not in ssdp_devices:
-                    devices.add(addr[0])
-
-                    # title = self.get_page_title("http://" + addr[0] + ":8080")
-
-                    title = "Device undefined (legacy protocol)"
-
-                    self.main_table.move_table_rows(ssdp_device_number+1)
-
-                    self.main_table.add_row_item(ssdp_device_number + 1, title,
-                                      "http://" + addr[0] + ":8080", "", "", tag="old_local")
-
-                    ssdp_device_number += 1
-
-        except socket.timeout:
-            sock.close()
-            pass
-
-        return devices
-
     def old_search_task(self):
-        self.old_search_old({}, 1)
+        self.old_search({}, 1)
+
+
+class ButtonSettings:
+    ACTIVE_COLOR = "#e0e0e0"
+
+    def __init__(self, master, col, row, command_change, command_view, bg_color='white', width=21, tag="local", state="normal", type=Revealer2.DEVICE_TYPE_OUR):
+        frame = Frame(master, background=bg_color, width=width, height=10)
+        frame.grid(column=col, row=row, sticky='news')
+        frame.propagate(False)
+        frame.tag = tag
+
+        frame.button = self
+
+        photo = PhotoImage(file='resources/settings2.png')
+
+        if state == "normal":
+            cursor = "hand2"
+        else:
+            cursor = "question_arrow"
+
+        # for viewing for all our devices
+        cursor='hand2'
+
+        if type == Revealer2.DEVICE_TYPE_OUR:
+            button = Button(frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor)
+            button.grid(column=1, row=0, ipadx=0, ipady=0, padx=0, pady=0)
+            button.image = photo
+            button.bg_default = bg_color
+            button["state"] = 'normal'
+
+            button['activebackground'] = self.ACTIVE_COLOR
+
+            button.bind("<Leave>", self._on_leave)
+            button.bind("<Enter>", self._on_enter)
+
+            self._button_change = button
+        else:
+            self._button_change = None
+
+        photo = PhotoImage(file='resources/properties.png')
+
+        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor="hand2")
+        button.grid(column=0, row=0, ipadx=0, ipady=0, padx=0, pady=0)
+        button.image = photo
+        button.bg_default = bg_color
+
+        button['activebackground'] = self.ACTIVE_COLOR
+
+        button.bind("<Leave>", self._on_leave)
+        button.bind("<Enter>", self._on_enter)
+
+        self._button_view = button
+
+    def change_button_color(self, color):
+        if self._button_change is not None:
+            self._button_change.configure(bg=color)
+            self._button_change.bg_default = color
+
+        self._button_view.configure(bg=color)
+        self._button_view.bg_default = color
+
+    def _on_enter(self, event):
+        if event.widget["state"] != "disabled":
+            event.widget.configure(bg=event.widget['activebackground'])
+
+    def _on_leave(self, event):
+        if event.widget["state"] != "disabled":
+            event.widget.configure(bg=event.widget.bg_default)
 
 
 class MIPASDialog(sd.Dialog):
     def __init__(self, title, device, uuid,
                  initialvalue=None,
-                 minvalue=None, maxvalue=None,
                  parent=None):
 
         self.device = device
         self.uuid = uuid
-        self.minvalue = minvalue
-        self.maxvalue = maxvalue
 
         self.initialvalue = initialvalue
 
         self.entry_ip = None
         self.entry_mask = None
+        self.entry_password = None
+
+        self.entry_gateway = None
+
+        self.checkbox_dhcp = None
+        self.dhcp = IntVar()
 
         sd.Dialog.__init__(self, parent, title)
 
@@ -1143,39 +1204,75 @@ class MIPASDialog(sd.Dialog):
 
     def body(self, master):
 
-        d_label = Label(master, text="Device: ", justify=LEFT)
-        d_label.grid(column=0, row=0, padx=5, sticky=W)
+        device_frame = Frame(master)
+        device_frame.grid(row=0, column=0, sticky='news')
 
-        device = Label(master, text=self.device, justify=LEFT)
-        device.grid(column=1, row=0, padx=5, sticky=W)
+        Label(device_frame, text="Device: ", justify=LEFT).grid(column=0, row=0, padx=5, sticky=W)
+        Label(device_frame, text=self.device, justify=LEFT).grid(column=1, row=0, padx=5, sticky=W)
 
-        u_label = Label(master, text="UUID: ", justify=LEFT)
-        u_label.grid(column=0, row=1, padx=5, sticky=W)
+        if self.uuid != '':
+            Label(device_frame, text="UUID: ", justify=LEFT).grid(column=0, row=1, padx=5, sticky=W)
+            Label(device_frame, text=self.uuid, justify=LEFT).grid(column=1, row=1, padx=5, sticky=W)
 
-        uuid = Label(master, text=self.uuid, justify=LEFT)
-        uuid.grid(column=1, row=1, padx=5, sticky=W)
+        Label(device_frame, text="Password: ", justify=LEFT).grid(column=0, row=2, padx=5, pady=5, sticky=W)
+        self.entry_password = Entry(device_frame, name="entry_password")
+        self.entry_password.grid(column=1, row=2, padx=5, pady=5, sticky=W + E)
 
-        ip_label = Label(master, text="New IP address: ", justify=LEFT)
-        ip_label.grid(column=0, row=2, padx=5, pady=5, sticky=W)
+        if self.initialvalue is not None:
+            self.entry_password.insert(0, self.initialvalue)
+            self.entry_password.select_range(0, END)
 
-        netmask_label = Label(master, text="New Network Mask: ", justify=LEFT)
-        netmask_label.grid(column=0, row=3, padx=5, pady=5, sticky=W)
+        # blank row
+        Label(master, text="", justify=LEFT).grid(column=0, row=1, padx=5, sticky=W)
+        # blank row
+        Label(master, text="", justify=LEFT).grid(column=0, row=3, padx=5, sticky=W)
 
-        self.entry_ip = Entry(master, name="entry_ip")
-        self.entry_ip.grid(column=1, row=2, padx=5, pady=5, sticky=W + E)
+        frame = LabelFrame(master, text="Network settings", font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+        frame.grid(row=2, column=0, sticky='ns')
+
+        # row for DHCP state
+        Label(frame, text="Get IP from DHCP: ", justify=LEFT).grid(column=0, row=3, padx=8, pady=8, sticky=W)
+        self.checkbox_dhcp = Checkbutton(frame, variable=self.dhcp, command=self._dhcp_change_state)
+        self.checkbox_dhcp.grid(column=1, row=3, sticky=W)
+
+        # row for IP address
+        Label(frame, text="IP address: ", justify=LEFT).grid(column=0, row=4, padx=8, pady=8, sticky=W)
+        self.entry_ip = Entry(frame, name="entry_ip")
+        self.entry_ip.grid(column=1, row=4, padx=8, pady=8, sticky=W + E)
 
         if self.initialvalue is not None:
             self.entry_ip.insert(0, self.initialvalue)
             self.entry_ip.select_range(0, END)
 
-        self.entry_mask = Entry(master, name="entry_mask")
-        self.entry_mask.grid(column=1, row=3, padx=5, pady=5, sticky=W + E)
+        # row for Net Mask
+        Label(frame, text="Network Mask: ", justify=LEFT).grid(column=0, row=5, padx=8, pady=8, sticky=W)
+        self.entry_mask = Entry(frame, name="entry_mask")
+        self.entry_mask.grid(column=1, row=5, padx=8, pady=8, sticky=W + E)
 
         if self.initialvalue is not None:
             self.entry_mask.insert(0, self.initialvalue)
             self.entry_mask.select_range(0, END)
 
-        return self.entry_ip
+        # row for Gateway
+        Label(frame, text="Default Gateway: ", justify=LEFT).grid(column=0, row=6, padx=8, pady=8, sticky=W)
+        self.entry_gateway = Entry(frame, name="entry_gateway")
+        self.entry_gateway.grid(column=1, row=6, padx=8, pady=8, sticky=W + E)
+
+        if self.initialvalue is not None:
+            self.entry_gateway.insert(0, self.initialvalue)
+            self.entry_gateway.select_range(0, END)
+
+        return self.entry_password
+
+    def _dhcp_change_state(self):
+        if self.dhcp.get():
+            self.entry_ip['state'] = 'disabled'
+            self.entry_mask['state'] = 'disabled'
+            self.entry_gateway['state'] = 'disabled'
+        else:
+            self.entry_ip['state'] = 'normal'
+            self.entry_mask['state'] = 'normal'
+            self.entry_gateway['state'] = 'normal'
 
     def validate(self):
         try:
@@ -1189,13 +1286,44 @@ class MIPASDialog(sd.Dialog):
             return 0
 
         # TODO: maybe we need to validate here
+        if result_ip['password'] == '':
+            mb.showwarning(
+                "No password",
+                "\nPlease insert password for changing this device settings.",
+                parent=self
+            )
+            return 0
+
+        if result_ip['dhcp'] == 0 and (result_ip['ip'] == '' or result_ip['netmask'] == ''):
+            mb.showwarning(
+                "Warning",
+                "\nPlease insert new IP address and Network Mask or choose DHCP server for IP configuration.",
+                parent=self
+            )
+            return 0
+
+        elif result_ip['dhcp'] == 1:
+            result_ip['ip'] = '0.0.0.0'
+            result_ip['netmask'] = '0.0.0.0'
+            result_ip['gateway'] = '0.0.0.0'
+
+        if result_ip['gateway'] == '':
+            result_ip['gateway'] = '0.0.0.0'
 
         self.result = result_ip
 
         return 1
 
     def getresult(self):
-        return self.entry_ip.get(), self.entry_mask.get()
+        result_dict = {}
+
+        result_dict['password'] = self.entry_password.get()
+        result_dict['dhcp'] = self.dhcp.get()
+        result_dict['ip'] = self.entry_ip.get()
+        result_dict['netmask'] = self.entry_mask.get()
+        result_dict['gateway'] = self.entry_gateway.get()
+
+        return result_dict
 
 
 class PropDialog(sd.Dialog):

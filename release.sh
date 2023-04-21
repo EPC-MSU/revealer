@@ -8,9 +8,8 @@ python3 -m venv venv
 ./venv/bin/python3 -m pip install -r requirements.txt
 ./venv/bin/python3 -m pip install pyinstaller
 ./venv/bin/pyinstaller main.py --clean --onefile --noconsole \
---add-binary "./resources/appicon.png:resources"
+--add-binary "resources/*:resources"
 
-cp -a ./resources/. ./dist/resources/.
 cp ./README.md ./dist/readme.md
 mv dist release
 mv ./release/main ./release/revealer2
