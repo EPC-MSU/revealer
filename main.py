@@ -1,3 +1,5 @@
+import os
+
 from tkinter import *
 from tkinter import ttk, font
 import tkinter.messagebox as mb
@@ -564,7 +566,8 @@ class Revealer2:
 
         # add revealer icon
         try:
-            self.root.iconphoto(False, PhotoImage(file="resources/appicon.png"))
+            self.root.iconphoto(False, PhotoImage(file=os.path.join(os.path.dirname(__file__),
+                                                                    "resources/appicon.png")))
         except:
             pass
 
@@ -580,12 +583,11 @@ class Revealer2:
         mainframe.propagate(False)
 
         # add Search-button
-        self.button = ttk.Button(mainframe, text="Search", command=self.start_thread_search)
+        self.button = ttk.Button(mainframe, text="Search", command=self.start_thread_search, cursor="hand2")
         self.button.grid(column=0, row=0, sticky='new')
 
-        self.root.bind("<Return>", self.ssdp_search)
-
-        self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link, settings_func=self.change_ip_click,
+        self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link,
+                                        settings_func=self.change_ip_click,
                                         properties_view_func=self.view_prop)
 
         for child in mainframe.winfo_children():
@@ -899,6 +901,12 @@ class Revealer2:
             return None
 
     def change_ip_multicast(self, row, uuid, settings_dict):
+
+        thread_change = threading.Thread(target=lambda: self.change_ip_multicast_task(row, uuid, settings_dict))
+
+        thread_change.start()
+
+    def change_ip_multicast_task(self, row, uuid, settings_dict):
         """
         Function for changing device's net settings (IP address and network mask) via multicast. We are using same
         protocol as for SSDP M-SEARCH but setting its aim as desired device's UUID and add new header in format:
@@ -1045,9 +1053,6 @@ class Revealer2:
 
         devices = set()
 
-        interfaces = socket.getaddrinfo(host=socket.gethostname(), port=None, family=socket.AF_INET)
-        allips = [ip[4][0] for ip in interfaces]
-
         adapters = ifaddr.get_adapters()
 
         device_number = [0, 0]
@@ -1119,7 +1124,7 @@ class ButtonSettings:
 
         frame.button = self
 
-        photo = PhotoImage(file='resources/settings2.png')
+        photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/settings2.png'))
 
         if state == "normal":
             cursor = "hand2"
@@ -1145,7 +1150,7 @@ class ButtonSettings:
         else:
             self._button_change = None
 
-        photo = PhotoImage(file='resources/properties.png')
+        photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/properties.png'))
 
         button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor="hand2")
         button.grid(column=0, row=0, ipadx=0, ipady=0, padx=0, pady=0)

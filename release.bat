@@ -14,9 +14,8 @@ venv\Scripts\python -m pip install --upgrade pip
 venv\Scripts\python -m pip install -r requirements.txt
 venv\Scripts\python -m pip install pyinstaller
 venv\Scripts\pyinstaller main.py --clean --onefile --noconsole ^
---add-binary "resources\appicon.png;."
+--add-data "resources\*;resources"
 
-xcopy resources\* dist\resources\* /S /E
 copy README.md dist
 rename dist release
 cd release

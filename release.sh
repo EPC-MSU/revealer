@@ -8,7 +8,7 @@ python3 -m venv venv
 ./venv/bin/python3 -m pip install -r requirements.txt
 ./venv/bin/python3 -m pip install pyinstaller
 ./venv/bin/pyinstaller main.py --clean --onefile --noconsole \
---add-binary "resources/*:resources"
+--add-data "resources/*:resources"
 
 cp ./README.md ./dist/readme.md
 mv dist release
