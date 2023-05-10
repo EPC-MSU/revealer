@@ -250,11 +250,17 @@ class RevealerTable:
 
         # we need to sort alphabetically at every moment
         # so... ignore the new row i guess
-        self.ssdp_dict[name] = self.last_row
+        # first of all check if had this object already
+        try:
+            presence = self.ssdp_dict[name+link]
+            return
+        except KeyError:
+            self.ssdp_dict[name+link] = self.last_row
 
         sorted_list = sorted(self.ssdp_dict)
 
-        alpha_row = sorted_list.index(name) + 1
+        alpha_row = sorted_list.index(name+link) + 1
+        self.ssdp_dict[name + link] = alpha_row
 
         if alpha_row < self.last_row:
             self.move_table_rows(alpha_row)
@@ -306,17 +312,17 @@ class RevealerTable:
             # blank_settings.tag = tag
 
             ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(alpha_row, name, uuid),
+                           command_change=lambda: self.settings_func(name, uuid, link['text']),
                            command_view=lambda: self.properties_view_func(other_data, link['text']),
                            bg_color=bg_color, width=1, tag=tag, type=Revealer2.DEVICE_TYPE_OTHER)
         elif uuid != "":
             ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(alpha_row, name, uuid),
+                           command_change=lambda: self.settings_func(name, uuid, link['text']),
                            command_view=lambda: self.properties_view_func(other_data, link['text']),
                            bg_color=bg_color, width=1, tag=tag, type=Revealer2.DEVICE_TYPE_OUR)
         else:
             ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(alpha_row, name, uuid),
+                           command_change=lambda: self.settings_func(name, uuid, link['text']),
                            command_view=lambda: self.properties_view_func(other_data, link['text']),
                            bg_color=bg_color, width=1, tag=tag, state="disabled", type=Revealer2.DEVICE_TYPE_OUR)
 
@@ -333,6 +339,7 @@ class RevealerTable:
     def move_table_rows(self, row_start, direction='down'):
         """
         Function moves every row of the main table to the next one since we need to sort our devices in the list.
+        Also we should update all rowa in the dictionary
         :param row_start: int
            First row to move.
         :param direction: str
@@ -375,6 +382,15 @@ class RevealerTable:
 
                 if widget.tag == self.ADDITIONAL_HEADER_TAG and col == 0:
                     self.legacy_header_row += additional_row
+
+        # update all dictionaries
+        for name in self.ssdp_dict:
+            if self.ssdp_dict[name] >= row_start:
+                self.ssdp_dict[name] += additional_row
+
+        for name in self.legacy_dict:
+            if self.legacy_dict[name] >= row_start:
+                self.legacy_dict[name] += additional_row
 
     def add_row_old_item(self, name, link, tag):
 
@@ -553,6 +569,10 @@ class Revealer2:
 
     def __init__(self):
 
+        # some search initial objects
+        self._notify_stop_flag = False
+
+        # tk initial objects
         self.root = Tk()
         self.root.title("Revealer " + Version.full)
         self.root.columnconfigure(0, weight=1)
@@ -603,7 +623,7 @@ class Revealer2:
         # remove everything from our table
         self.main_table.delete_all_rows()
 
-        search_thread = threading.Thread(target=self.ssdp_search)
+        search_thread = threading.Thread(target=self.ssdp_search_task)
         old_search_thread = threading.Thread(target=self.old_search_task)
 
         search_thread.start()
@@ -705,7 +725,7 @@ class Revealer2:
                 else:
                     print("Can't open this link.")
 
-    def ssdp_search(self):
+    def ssdp_search_task(self):
         # M-Search message body
         message = \
             'M-SEARCH * HTTP/1.1\r\n' \
@@ -740,8 +760,11 @@ class Revealer2:
                 try:
                     sock.bind((ip.ip, 0))
                 except:
-                    # print('   Can\'t bind to this ip')
                     continue
+
+                # if ip.ip is suitable for m-search - try to listen for notify messages also
+                notify_listen_thread = threading.Thread(target=self.listen_notify_task, args=[ip.ip])
+                notify_listen_thread.start()
 
                 # set timeout
                 sock.settimeout(1)
@@ -822,17 +845,118 @@ class Revealer2:
                             device_number[type_device] += 1
 
                 except socket.timeout:
+                    self._notify_stop_flag = True
                     sock.close()
-                    # pass
-                    # old_devices = self.old_search(devices, device_number[Revealer2.DEVICE_TYPE_OUR], ip.ip)
-                    # for device in old_devices:
-                      #  devices.add(device)
 
         self.button["state"] = "normal"
         self.button["text"] = "Search"
         self.button.update()
 
         return
+
+    def listen_notify_task(self, interface_ip):
+        """
+        Task for search thread where we listen for all notify messages while we sending m-searches since we add too
+        our device option to send notify with answering to the m-search.
+        :return:
+        """
+
+        # devices found with notify listening
+        devices = set()
+
+        multicast_group = '239.255.255.250'
+        multicast_port = 1900
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
+        try:
+            sock.bind(('', multicast_port))
+        except OSError:
+            return
+
+        sock.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
+                        socket.inet_aton(multicast_group) + socket.inet_aton(interface_ip))
+
+        print(sock)
+
+        # we are starting the task so flag should be False
+        self._notify_stop_flag = False
+
+        # listen and capture returned responses
+        try:
+            while not self._notify_stop_flag:
+                data, addr = sock.recvfrom(8192)
+                data_strings = data.decode('utf-8').split('\r\n')
+
+                if data_strings[0] == 'NOTIFY * HTTP/1.1':
+
+                    data_dict = self.parse_ssdp_data(data.decode('utf-8'))
+
+                    # if we have not received this location before
+                    if not data_dict["ssdp_url"] in devices:
+
+                        devices.add(data_dict["ssdp_url"])
+
+                        # check is this our device or not
+                        version_with_settings = ""
+                        type_device = Revealer2.DEVICE_TYPE_OUR
+                        other_type = Revealer2.DEVICE_TYPE_OTHER
+
+                        device_index_in_list = self.find_ssdp_enhanced_device(data_dict["server"])
+
+                        if device_index_in_list is not None:
+                            version_with_settings = self.SSDP_ENHANCED_DEVICES[
+                                device_index_in_list].enhanced_ssdp_support_min_fw
+                            uuid = data_dict["uuid"]
+
+                            # we need to check that if we have our device it supports setting settings via multicast
+                            if version_with_settings != "":
+                                version_with_settings_array = [int(num) for num in version_with_settings.split('.')]
+                                current_version = data_dict["version"].split('.')
+                                current_version_array = [int(num) for num in current_version]
+
+                                # check that we have version greater than this
+                                if current_version_array[0] < version_with_settings_array[0]:
+                                    uuid = ""
+                                elif current_version_array[1] < version_with_settings_array[1]:
+                                    uuid = ""
+                                elif current_version_array[2] < version_with_settings_array[2]:
+                                    uuid = ""
+
+                        else:
+                            # if this is not our device - we don't need its notify
+                            continue
+
+                        xml_dict = self.parse_upnp_xml(data_dict["location"])
+
+                        if xml_dict is not None:
+                            # check that we have our url with correct format
+                            if xml_dict["presentationURL"][0:4] != "http":
+                                link = "http://" + addr[0] + xml_dict["presentationURL"]
+                            else:
+                                link = xml_dict["presentationURL"]
+
+                            xml_dict["version"] = data_dict["version"]
+
+                            with self.main_table.lock:
+                                self.main_table.move_table_rows(self.main_table.last_row)
+                                self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
+                                                                  link, uuid, xml_dict, tag="local")
+
+                                self.main_table.last_row += 1
+                        else:
+                            with self.main_table.lock:
+                                self.main_table.move_table_rows(self.main_table.last_row)
+                                self.main_table.add_row_ssdp_item(data_dict["server"],
+                                                                  data_dict["ssdp_url"], uuid, data_dict,
+                                                                  tag="not_local")
+
+                                self.main_table.last_row += 1
+        except socket.timeout:
+            sock.close()
+
+        # close socket at the end
+        sock.close()
 
     @staticmethod
     def parse_ssdp_data(ssdp_data):
@@ -1009,9 +1133,9 @@ class Revealer2:
         self.button["text"] = "Search"
         self.button.update()
 
-    def change_ip_click(self, row, name, uuid):
+    def change_ip_click(self, name, uuid, link):
         """
-        Function for starting IP-address changin by clicking the button.
+        Function for starting IP-address changing by clicking the button.
         :return: None
         """
 
@@ -1020,6 +1144,8 @@ class Revealer2:
             try:
                 new_settings = dialog.result
                 print(new_settings)
+
+                row = self.main_table.ssdp_dict[name+link]
 
                 # request changing net settings
                 self.change_ip_multicast(row, uuid, new_settings)
@@ -1116,7 +1242,8 @@ class Revealer2:
 class ButtonSettings:
     ACTIVE_COLOR = "#e0e0e0"
 
-    def __init__(self, master, col, row, command_change, command_view, bg_color='white', width=21, tag="local", state="normal", type=Revealer2.DEVICE_TYPE_OUR):
+    def __init__(self, master, col, row, command_change, command_view, bg_color='white', width=21, tag="local",
+                 state="normal", type=Revealer2.DEVICE_TYPE_OUR):
         frame = Frame(master, background=bg_color, width=width, height=10)
         frame.grid(column=col, row=row, sticky='news')
         frame.propagate(False)
@@ -1135,7 +1262,7 @@ class ButtonSettings:
         cursor='hand2'
 
         if type == Revealer2.DEVICE_TYPE_OUR:
-            button = Button(frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor)
+            button = Button(frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor, highlightbackground=bg_color)
             button.grid(column=1, row=0, ipadx=0, ipady=0, padx=0, pady=0)
             button.image = photo
             button.bg_default = bg_color
@@ -1152,7 +1279,7 @@ class ButtonSettings:
 
         photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/properties.png'))
 
-        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor="hand2")
+        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor="hand2", highlightbackground=bg_color)
         button.grid(column=0, row=0, ipadx=0, ipady=0, padx=0, pady=0)
         button.image = photo
         button.bg_default = bg_color
@@ -1166,19 +1293,19 @@ class ButtonSettings:
 
     def change_button_color(self, color):
         if self._button_change is not None:
-            self._button_change.configure(bg=color)
+            self._button_change.configure(bg=color, highlightbackground=color)
             self._button_change.bg_default = color
 
-        self._button_view.configure(bg=color)
+        self._button_view.configure(bg=color, highlightbackground=color)
         self._button_view.bg_default = color
 
     def _on_enter(self, event):
         if event.widget["state"] != "disabled":
-            event.widget.configure(bg=event.widget['activebackground'])
+            event.widget.configure(bg=event.widget['activebackground'], highlightbackground=event.widget['activebackground'])
 
     def _on_leave(self, event):
         if event.widget["state"] != "disabled":
-            event.widget.configure(bg=event.widget.bg_default)
+            event.widget.configure(bg=event.widget.bg_default, highlightbackground=event.widget.bg_default)
 
 
 class MIPASDialog(sd.Dialog):
