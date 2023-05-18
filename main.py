@@ -5,8 +5,6 @@ from tkinter import ttk, font
 import tkinter.messagebox as mb
 import tkinter.simpledialog as sd
 
-# from PIL import Image, ImageTk
-
 import socket
 import ifaddr
 import webbrowser as wb
@@ -186,6 +184,7 @@ class RevealerTable:
 
         self.ssdp_dict = {}
         self.legacy_dict = {}
+        self.ip_dict_whole = {}
 
     def create_table(self, master, col, row, height):
 
@@ -236,6 +235,7 @@ class RevealerTable:
 
         self.ssdp_dict = {}
         self.legacy_dict = {}
+        self.ip_dict_whole = {}
 
         for i in self.main_table.winfo_children():
             if hasattr(i, 'tag'):
@@ -246,11 +246,17 @@ class RevealerTable:
                 # and if does not have any tag at all
                 i.destroy()
 
-    def add_row_ssdp_item(self, name, link, uuid, other_data, tag):
+    def add_row_ssdp_item(self, name, link, ip_address, uuid, other_data, tag):
 
         # we need to sort alphabetically at every moment
         # so... ignore the new row i guess
         # first of all check if had this object already
+
+        try:
+            presence_whole = self.ip_dict_whole[ip_address]
+            return
+        except KeyError:
+            self.ip_dict_whole[ip_address] = name
         try:
             presence = self.ssdp_dict[name+link]
             return
@@ -282,27 +288,27 @@ class RevealerTable:
         if tag != "not_local":
             device = Label(self.main_table, text=name, anchor="w", background=bg_color,
                            font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
+            link_l = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
         else:
             device = Label(self.main_table, text=name, anchor="w", background=bg_color)
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color,
+            link_l = Label(self.main_table, text=link, anchor="w", background=bg_color,
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
 
-        link.grid(row=alpha_row, column=2, sticky="ew")
+        link_l.grid(row=alpha_row, column=2, sticky="ew")
         device.grid(row=alpha_row, column=0, sticky="ew")
 
         device.tag = tag
-        link.tag = tag
+        link_l.tag = tag
 
-        device.link = link['text']
-        link.link = link['text']
+        device.link = link_l['text']
+        link_l.link = link_l['text']
 
         device.uuid = uuid
         device.other_data = other_data
 
-        link.uuid = uuid
-        link.other_data = other_data
+        link_l.uuid = uuid
+        link_l.other_data = other_data
 
         # add settings button
 
@@ -312,28 +318,29 @@ class RevealerTable:
             # blank_settings.tag = tag
 
             ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(name, uuid, link['text']),
-                           command_view=lambda: self.properties_view_func(other_data, link['text']),
+                           command_change=lambda: self.settings_func(name, uuid, link_l['text']),
+                           command_view=lambda: self.properties_view_func(other_data, link_l['text']),
                            bg_color=bg_color, width=1, tag=tag, type=Revealer2.DEVICE_TYPE_OTHER)
         elif uuid != "":
             ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(name, uuid, link['text']),
-                           command_view=lambda: self.properties_view_func(other_data, link['text']),
+                           command_change=lambda: self.settings_func(name, uuid, link_l['text']),
+                           command_view=lambda: self.properties_view_func(other_data, link_l['text']),
                            bg_color=bg_color, width=1, tag=tag, type=Revealer2.DEVICE_TYPE_OUR)
         else:
             ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(name, uuid, link['text']),
-                           command_view=lambda: self.properties_view_func(other_data, link['text']),
+                           command_change=lambda: self.settings_func(name, uuid, link_l['text']),
+                           command_view=lambda: self.properties_view_func(other_data, link_l['text']),
                            bg_color=bg_color, width=1, tag=tag, state="disabled", type=Revealer2.DEVICE_TYPE_OUR)
 
         # bind double left click and right click
         # bind left-click to 'open_link'
-        link.bind("<Button-1>", self.left_click_func)
+        link_l.bind("<Button-1>", self.left_click_func)
 
         # bind right-click to 'change_ip'
-        link.bind("<Button-3>", self.right_click_func)
+        link_l.bind("<Button-3>", self.right_click_func)
         device.bind("<Button-3>", self.right_click_func)
 
+        self.last_row += 1
         return
 
     def move_table_rows(self, row_start, direction='down'):
@@ -394,6 +401,11 @@ class RevealerTable:
 
     def add_row_old_item(self, name, link, tag):
 
+        try:
+            presence_whole = self.ip_dict_whole[link]
+            return
+        except KeyError:
+            self.ip_dict_whole[link] = name
         # check if we have at least one old device in the list
         if not self.legacy_last_row:
 
@@ -831,16 +843,13 @@ class Revealer2:
                                 with self.main_table.lock:
                                     self.main_table.move_table_rows(self.main_table.last_row)
                                     self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
-                                                                      link, uuid, xml_dict, tag="local")
+                                                                      link, data_dict["ssdp_url"], uuid, xml_dict, tag="local")
 
-                                    self.main_table.last_row += 1
                             else:
                                 with self.main_table.lock:
                                     self.main_table.move_table_rows(self.main_table.last_row)
                                     self.main_table.add_row_ssdp_item(data_dict["server"],
-                                                      data_dict["ssdp_url"], uuid, data_dict, tag="not_local")
-
-                                    self.main_table.last_row += 1
+                                                      data_dict["ssdp_url"], data_dict["ssdp_url"], uuid, data_dict, tag="not_local")
 
                             device_number[type_device] += 1
 
@@ -876,8 +885,6 @@ class Revealer2:
 
         sock.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
                         socket.inet_aton(multicast_group) + socket.inet_aton(interface_ip))
-
-        print(sock)
 
         # we are starting the task so flag should be False
         self._notify_stop_flag = False
@@ -941,17 +948,15 @@ class Revealer2:
                             with self.main_table.lock:
                                 self.main_table.move_table_rows(self.main_table.last_row)
                                 self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
-                                                                  link, uuid, xml_dict, tag="local")
+                                                                  link, data_dict["ssdp_url"], uuid, xml_dict, tag="local")
 
-                                self.main_table.last_row += 1
                         else:
                             with self.main_table.lock:
                                 self.main_table.move_table_rows(self.main_table.last_row)
                                 self.main_table.add_row_ssdp_item(data_dict["server"],
-                                                                  data_dict["ssdp_url"], uuid, data_dict,
+                                                                  data_dict["ssdp_url"], data_dict["ssdp_url"], uuid, data_dict,
                                                                   tag="not_local")
 
-                                self.main_table.last_row += 1
         except socket.timeout:
             sock.close()
 
@@ -1085,6 +1090,22 @@ class Revealer2:
                     # print('   Can\'t bind to this ip')
                     continue
 
+                # try to listen to the notify too because if we are trying to change something in another network
+                multicast_group = '239.255.255.250'
+                multicast_port = 1900
+
+                sock_notify = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+                sock_notify.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
+                try:
+                    sock_notify.bind(('', multicast_port))
+                except OSError:
+                    continue
+
+                sock_notify.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
+                                       socket.inet_aton(multicast_group) + socket.inet_aton(ip.ip))
+
+                sock_notify.settimeout(0.5)
+
                 sock.settimeout(1)
                 try:
                     sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
@@ -1099,11 +1120,27 @@ class Revealer2:
                         data_dict = self.parse_ssdp_data(data.decode('utf-8'))
 
                         # if we have not received this location before
-                        if not data_dict["location"] in devices:
+                        if not data_dict["location"] in devices and data_dict["uuid"] == uuid:
                             devices.add(data_dict["location"])
 
                 except socket.timeout:
+                    # try to get notify response from different network
+                    try:
+                        while True:
+                            data_notify, addr_notify = sock_notify.recvfrom(8192)
+                            data_strings = data_notify.decode('utf-8').split('\r\n')
+
+                            if data_strings[0] == 'NOTIFY * HTTP/1.1':
+
+                                data_notify_dict = self.parse_ssdp_data(data_notify.decode('utf-8'))
+
+                                if not data_notify_dict["location"] in devices and data_notify_dict["uuid"] == uuid:
+                                    devices.add(data_notify_dict["location"])
+                    except socket.timeout:                      
+                        pass
+  
                     sock.close()
+                    sock_notify.close()
                     if len(devices) > 0:
                         break
                     pass
@@ -1259,10 +1296,11 @@ class ButtonSettings:
             cursor = "question_arrow"
 
         # for viewing for all our devices
-        cursor='hand2'
+        cursor = 'hand2'
 
         if type == Revealer2.DEVICE_TYPE_OUR:
-            button = Button(frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor, highlightbackground=bg_color)
+            button = Button(frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor,
+            highlightbackground=bg_color)
             button.grid(column=1, row=0, ipadx=0, ipady=0, padx=0, pady=0)
             button.image = photo
             button.bg_default = bg_color
@@ -1279,7 +1317,8 @@ class ButtonSettings:
 
         photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/properties.png'))
 
-        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor="hand2", highlightbackground=bg_color)
+        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor="hand2",
+        highlightbackground=bg_color)
         button.grid(column=0, row=0, ipadx=0, ipady=0, padx=0, pady=0)
         button.image = photo
         button.bg_default = bg_color
