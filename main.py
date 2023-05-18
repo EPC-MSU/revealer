@@ -1457,10 +1457,10 @@ class MIPASDialog(sd.Dialog):
             return 0
 
         # TODO: maybe we need to validate here
-        if result_ip['password'] == '':
+        if len(result_ip['password']) > 20:
             mb.showwarning(
-                "No password",
-                "\nPlease insert password for changing this device settings.",
+                "Password is too long",
+                "\nPassword of this device can be 20 or less symbols long.",
                 parent=self
             )
             return 0
