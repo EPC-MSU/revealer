@@ -1,9 +1,11 @@
 import os
+import re
 
 from tkinter import *
 from tkinter import ttk, font
 import tkinter.messagebox as mb
 import tkinter.simpledialog as sd
+import tkinter.tix as tix
 
 import socket
 import ifaddr
@@ -17,6 +19,8 @@ import threading
 
 from version import Version
 
+DEFAULT_COLOR = "black"
+CURSOR_POINTER = "hand2"
 
 class SSDPEnhancedDevice:
     def __init__(self, ssdp_device_name, enhanced_ssdp_support_min_fw, enhanced_ssdp_version):
@@ -126,7 +130,10 @@ class VerticalScrolledFrame(Frame):
                 self.canvas.yview_scroll(int(1), "units")
             else:
                 # auto calculate for mouse wheel in windows
-                self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                if event.delta >=120:
+                    self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                else:
+                    self.canvas.yview_scroll(int((event.delta)), "units")
 
     def _configure_interior(self, event):
         # Update the scrollbars to match the size of the inner frame.
@@ -197,7 +204,7 @@ class RevealerTable:
         new_table = self.great_table.interior
 
         # add headers
-        header_1 = Label(new_table, text="SSDP Devices", anchor="center", background=self.HEADER_COLOR)
+        header_1 = Label(new_table, text="SSDP Devices", anchor="center", background=self.HEADER_COLOR, fg=DEFAULT_COLOR)
         header_1.grid(row=0, column=0, sticky="ew")
         header_1.tag = self.HEADER_TAG
 
@@ -205,7 +212,7 @@ class RevealerTable:
         header_2.grid(row=0, column=1, sticky="news")
         header_2.tag = self.HEADER_TAG
 
-        header_3 = Label(new_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0)
+        header_3 = Label(new_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0, fg=DEFAULT_COLOR)
         header_3.grid(row=0, column=2, sticky="ew")
         header_3.tag = self.HEADER_TAG
 
@@ -257,6 +264,7 @@ class RevealerTable:
             return
         except KeyError:
             self.ip_dict_whole[ip_address] = name
+
         try:
             presence = self.ssdp_dict[name+link]
             return
@@ -286,13 +294,13 @@ class RevealerTable:
         middle.tag = tag
 
         if tag != "not_local":
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color,
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_COLOR,
                            font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
-            link_l = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
+            link_l = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor=CURSOR_POINTER, fg="blue",
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
         else:
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color)
-            link_l = Label(self.main_table, text=link, anchor="w", background=bg_color,
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_COLOR)
+            link_l = Label(self.main_table, text=link, anchor="w", background=bg_color, fg=DEFAULT_COLOR,
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
 
         link_l.grid(row=alpha_row, column=2, sticky="ew")
@@ -341,6 +349,7 @@ class RevealerTable:
         device.bind("<Button-3>", self.right_click_func)
 
         self.last_row += 1
+
         return
 
     def move_table_rows(self, row_start, direction='down'):
@@ -362,33 +371,36 @@ class RevealerTable:
             additional_row = -1
 
         for widget in self.main_table.winfo_children():
-            row = widget.grid_info()['row']
-            col = widget.grid_info()['column']
-            if row >= row_start:
-                widget.grid(column=col, row=row+additional_row)
-                if (self.legacy_last_row >= row > self.last_row or row <= self.last_row) and \
-                        widget.tag != self.ADDITIONAL_HEADER_TAG and widget.tag != self.BLANK_LINE_TAG:
-                    if (row+additional_row) > self.legacy_header_row:
-                        if (row+additional_row - self.legacy_header_row) % 2 == 0:
-                            widget["background"] = self.EVEN_ROW_COLOR
-                            if hasattr(widget, 'button'):
-                                widget.button.change_button_color(self.EVEN_ROW_COLOR)
+            try:
+                row = widget.grid_info()['row']
+                col = widget.grid_info()['column']
+                if row >= row_start:
+                    widget.grid(column=col, row=row+additional_row)
+                    if (self.legacy_last_row >= row > self.last_row or row <= self.last_row) and \
+                            widget.tag != self.ADDITIONAL_HEADER_TAG and widget.tag != self.BLANK_LINE_TAG:
+                        if (row+additional_row) > self.legacy_header_row:
+                            if (row+additional_row - self.legacy_header_row) % 2 == 0:
+                                widget["background"] = self.EVEN_ROW_COLOR
+                                if hasattr(widget, 'button'):
+                                    widget.button.change_button_color(self.EVEN_ROW_COLOR)
+                            else:
+                                widget["background"] = "white"
+                                if hasattr(widget, 'button'):
+                                    widget.button.change_button_color("white")
                         else:
-                            widget["background"] = "white"
-                            if hasattr(widget, 'button'):
-                                widget.button.change_button_color("white")
-                    else:
-                        if (row+additional_row) % 2 == 0:
-                            widget["background"] = self.EVEN_ROW_COLOR
-                            if hasattr(widget, 'button'):
-                                widget.button.change_button_color(self.EVEN_ROW_COLOR)
-                        else:
-                            widget["background"] = "white"
-                            if hasattr(widget, 'button'):
-                                widget.button.change_button_color("white")
+                            if (row+additional_row) % 2 == 0:
+                                widget["background"] = self.EVEN_ROW_COLOR
+                                if hasattr(widget, 'button'):
+                                    widget.button.change_button_color(self.EVEN_ROW_COLOR)
+                            else:
+                                widget["background"] = "white"
+                                if hasattr(widget, 'button'):
+                                    widget.button.change_button_color("white")
 
-                if widget.tag == self.ADDITIONAL_HEADER_TAG and col == 0:
-                    self.legacy_header_row += additional_row
+                    if widget.tag == self.ADDITIONAL_HEADER_TAG and col == 0:
+                        self.legacy_header_row += additional_row
+            except KeyError:
+                pass
 
         # update all dictionaries
         for name in self.ssdp_dict:
@@ -406,10 +418,11 @@ class RevealerTable:
             return
         except KeyError:
             self.ip_dict_whole[link] = name
+
         # check if we have at least one old device in the list
         if not self.legacy_last_row:
 
-            self.legacy_last_row = self.last_row +1
+            self.legacy_last_row = self.last_row + 1
 
             # add two blank lines
             blank = Label(self.main_table, text="", anchor="w", background='white')
@@ -456,7 +469,7 @@ class RevealerTable:
             self.legacy_header_row = self.legacy_last_row+2
 
             # add headers
-            header_1 = Label(self.main_table, text="Legacy Protocol Devices", anchor="center",
+            header_1 = Label(self.main_table, text="Legacy Protocol Devices", anchor="center", fg=DEFAULT_COLOR,
                              background=self.HEADER_COLOR)
             header_1.grid(row=self.legacy_header_row, column=0, sticky="ew")
             header_1.tag = self.ADDITIONAL_HEADER_TAG
@@ -465,7 +478,8 @@ class RevealerTable:
             header_2.grid(row=self.legacy_header_row, column=1, sticky="ns")
             header_2.tag = self.ADDITIONAL_HEADER_TAG
 
-            header_3 = Label(self.main_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0)
+            header_3 = Label(self.main_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0,
+                             fg=DEFAULT_COLOR)
             header_3.grid(row=self.legacy_header_row, column=2, sticky="ew")
             header_3.tag = self.ADDITIONAL_HEADER_TAG
 
@@ -504,13 +518,13 @@ class RevealerTable:
         middle.tag = tag
 
         if tag != "not_local":
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color,
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_COLOR,
                            font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor='hand2', fg="blue",
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor=CURSOR_POINTER, fg="blue",
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
         else:
             device = Label(self.main_table, text=name, anchor="w", background=bg_color)
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color,
+            link = Label(self.main_table, text=link, anchor="w", background=bg_color, fg=DEFAULT_COLOR,
                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
 
         link.grid(row=alpha_row, column=2, sticky="ew")
@@ -535,10 +549,13 @@ class RevealerTable:
 
     def delete_table_row(self, del_row):
         for widget in self.main_table.winfo_children():
-            row = widget.grid_info()['row']
-            col = widget.grid_info()['column']
-            if row == del_row:
-                widget.destroy()
+            try:
+                row = widget.grid_info()['row']
+                col = widget.grid_info()['column']
+                if row == del_row:
+                    widget.destroy()
+            except KeyError:
+                pass
 
         self.move_table_rows(del_row+1, direction='up')
 
@@ -585,7 +602,8 @@ class Revealer2:
         self._notify_stop_flag = False
 
         # tk initial objects
-        self.root = Tk()
+        self.root = tix.Tk()
+
         self.root.title("Revealer " + Version.full)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
@@ -615,8 +633,15 @@ class Revealer2:
         mainframe.propagate(False)
 
         # add Search-button
-        self.button = ttk.Button(mainframe, text="Search", command=self.start_thread_search, cursor="hand2")
+        self.button = ttk.Button(mainframe, text="Search", command=self.start_thread_search, cursor=CURSOR_POINTER)
         self.button.grid(column=0, row=0, sticky='new')
+
+        tip = tix.Balloon(self.root)
+        tip.subwidget('label').destroy_physically = 1
+        tip.subwidget('label').destroy()
+        for sub in tip.subwidgets_all():
+            sub.config(bg="white")
+        tip.bind_widget(self.button, balloonmsg="Main search")
 
         self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link,
                                         settings_func=self.change_ip_click,
@@ -844,7 +869,6 @@ class Revealer2:
                                     self.main_table.move_table_rows(self.main_table.last_row)
                                     self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
                                                                       link, data_dict["ssdp_url"], uuid, xml_dict, tag="local")
-
                             else:
                                 with self.main_table.lock:
                                     self.main_table.move_table_rows(self.main_table.last_row)
@@ -949,7 +973,6 @@ class Revealer2:
                                 self.main_table.move_table_rows(self.main_table.last_row)
                                 self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
                                                                   link, data_dict["ssdp_url"], uuid, xml_dict, tag="local")
-
                         else:
                             with self.main_table.lock:
                                 self.main_table.move_table_rows(self.main_table.last_row)
@@ -1136,9 +1159,9 @@ class Revealer2:
 
                                 if not data_notify_dict["location"] in devices and data_notify_dict["uuid"] == uuid:
                                     devices.add(data_notify_dict["location"])
-                    except socket.timeout:                      
+                    except socket.timeout:
                         pass
-  
+
                     sock.close()
                     sock_notify.close()
                     if len(devices) > 0:
@@ -1278,6 +1301,8 @@ class Revealer2:
 
 class ButtonSettings:
     ACTIVE_COLOR = "#e0e0e0"
+    TOOLTIP_BG_COLOR = "white"
+    TOOLTIP_TIMEOUT = 0.75
 
     def __init__(self, master, col, row, command_change, command_view, bg_color='white', width=21, tag="local",
                  state="normal", type=Revealer2.DEVICE_TYPE_OUR):
@@ -1290,26 +1315,33 @@ class ButtonSettings:
 
         photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/settings2.png'))
 
+        text_settings = "Change network settings"
+
         if state == "normal":
-            cursor = "hand2"
+            cursor = CURSOR_POINTER
         else:
             cursor = "question_arrow"
-
-        # for viewing for all our devices
-        cursor = 'hand2'
+            text_settings += "\nChange of the network settings in this firmware version is unavailable"
 
         if type == Revealer2.DEVICE_TYPE_OUR:
             button = Button(frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor,
-            highlightbackground=bg_color)
+                            highlightbackground=bg_color)
             button.grid(column=1, row=0, ipadx=0, ipady=0, padx=0, pady=0)
             button.image = photo
             button.bg_default = bg_color
-            button["state"] = 'normal'
+            button["state"] = state
 
             button['activebackground'] = self.ACTIVE_COLOR
 
             button.bind("<Leave>", self._on_leave)
             button.bind("<Enter>", self._on_enter)
+
+            tip = tix.Balloon(master)
+            tip.subwidget('label').destroy_physically = 1
+            tip.subwidget('label').destroy()
+            for sub in tip.subwidgets_all():
+                sub.config(bg="white")
+            tip.bind_widget(button, balloonmsg=text_settings)
 
             self._button_change = button
         else:
@@ -1317,8 +1349,8 @@ class ButtonSettings:
 
         photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/properties.png'))
 
-        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor="hand2",
-        highlightbackground=bg_color)
+        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor=CURSOR_POINTER,
+                        highlightbackground=bg_color)
         button.grid(column=0, row=0, ipadx=0, ipady=0, padx=0, pady=0)
         button.image = photo
         button.bg_default = bg_color
@@ -1327,6 +1359,13 @@ class ButtonSettings:
 
         button.bind("<Leave>", self._on_leave)
         button.bind("<Enter>", self._on_enter)
+
+        tip = tix.Balloon(master)
+        tip.subwidget('label').destroy_physically = 1
+        tip.subwidget('label').destroy()
+        for sub in tip.subwidgets_all():
+            sub.config(bg="white")
+        tip.bind_widget(button, balloonmsg="Device information")
 
         self._button_view = button
 
@@ -1348,6 +1387,12 @@ class ButtonSettings:
 
 
 class MIPASDialog(sd.Dialog):
+
+    NET_MASK_RE = "^(((255\.){3}(252|248|240|224|192|128|0+))|((255\.){2}(255|254|252|248|240|224|192|128|0+)\.0)" \
+                 "|((255\.)(255|254|252|248|240|224|192|128|0+)(\.0+){2})" \
+                 "|((255|254|252|248|240|224|192|128|0+)(\.0+){3}))$"
+    IP_ADDRESS_RE = "^(([0-1]?[0-9]?[0-9]?|2[0-4][0-9]|25[0-5])\.){3}([0-1]?[0-9]?[0-9]?|2[0-4][0-9]|25[0-5]){1}$"
+
     def __init__(self, title, device, uuid,
                  initialvalue=None,
                  parent=None):
@@ -1386,7 +1431,7 @@ class MIPASDialog(sd.Dialog):
             Label(device_frame, text=self.uuid, justify=LEFT).grid(column=1, row=1, padx=5, sticky=W)
 
         Label(device_frame, text="Password: ", justify=LEFT).grid(column=0, row=2, padx=5, pady=5, sticky=W)
-        self.entry_password = Entry(device_frame, name="entry_password")
+        self.entry_password = Entry(device_frame, name="entry_password", show="*")
         self.entry_password.grid(column=1, row=2, padx=5, pady=5, sticky=W + E)
 
         if self.initialvalue is not None:
@@ -1398,7 +1443,9 @@ class MIPASDialog(sd.Dialog):
         # blank row
         Label(master, text="", justify=LEFT).grid(column=0, row=3, padx=5, sticky=W)
 
-        frame = LabelFrame(master, text="Network settings", font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+        frame = LabelFrame(master, text="Network settings", fg=DEFAULT_COLOR,
+                           font=('TkTextFont',font.nametofont('TkTextFont').actual()['size'], 'bold'))
+
         frame.grid(row=2, column=0, sticky='ns')
 
         # row for DHCP state
@@ -1473,6 +1520,37 @@ class MIPASDialog(sd.Dialog):
             )
             return 0
 
+        elif result_ip['dhcp'] == 0:
+
+            print('check format time')
+
+            warning_msg = ""
+
+            if self.check_format(result_ip['ip'], self.IP_ADDRESS_RE):
+                if len(warning_msg) > 0:
+                    warning_msg += "\n\n"
+                warning_msg += "IP Address format is incorrect. Only #.#.#.#, where # stands" \
+                               " for number from 0 to 255," \
+                               " format is supported.\nExample: 192.168.1.1."
+
+            if self.check_format(result_ip['netmask'], self.NET_MASK_RE):
+                if len(warning_msg) > 0:
+                    warning_msg += "\n\n"
+                warning_msg += "\nNetwork Mask format is incorrect.\nExample: 255.255.0.0."
+
+            if result_ip['gateway'] != '':
+                if len(warning_msg) > 0:
+                    warning_msg += "\n\n"
+                warning_msg += "Gateway Address format is incorrect. Only #.#.#.#, where #" \
+                               " stands for number from 0 to 255," \
+                               " format is supported.\nExample: 192.168.1.1."
+
+            print("Warning: ", warning_msg)
+
+            if len(warning_msg) > 0:
+                mb.showwarning("Warning", warning_msg, parent=self)
+                return 0
+
         elif result_ip['dhcp'] == 1:
             result_ip['ip'] = '0.0.0.0'
             result_ip['netmask'] = '0.0.0.0'
@@ -1495,6 +1573,16 @@ class MIPASDialog(sd.Dialog):
         result_dict['gateway'] = self.entry_gateway.get()
 
         return result_dict
+
+    @staticmethod
+    def check_format(string, re_format) -> bool:
+        print('Check format:', string, re_format)
+        ip_format = re.compile(re_format)
+
+        if ip_format.match(string) is not None:
+            return False
+        else:
+            return True
 
 
 class PropDialog(sd.Dialog):
@@ -1527,20 +1615,20 @@ class PropDialog(sd.Dialog):
             if self.dict[name] is not None:
                 try:
                     label_name = self.labels_dict[name]
-                    Label(master, text=label_name + ": ", justify=LEFT,
+                    Label(master, text=label_name + ": ", justify=LEFT, fg=DEFAULT_COLOR,
                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold')).grid(column=0,
                                                                                                             row=row_index,
                                                                                                             padx=5,
                                                                                                             sticky=W)
                     if name == 'presentationURL':
-                        Label(master, text=self.url, justify=LEFT, cursor='hand2',
+                        Label(master, text=self.url, justify=LEFT, cursor=CURSOR_POINTER, fg=DEFAULT_COLOR,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline')).grid(
                             column=1, row=row_index, padx=5, sticky=W)
                     else:
                         if self.dict[name][0:4] == "http":
                             font_style = 'underline'
-                            cursor = 'hand2'
-                        Label(master, text=self.dict[name], justify=LEFT, cursor=cursor,
+                            cursor = CURSOR_POINTER
+                        Label(master, text=self.dict[name], justify=LEFT, cursor=cursor, fg=DEFAULT_COLOR,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_style)).grid(
                             column=1, row=row_index, padx=5, sticky=W)
                     row_index += 1
@@ -1600,5 +1688,6 @@ class PropDialog(sd.Dialog):
 
 if __name__ == '__main__':
     print("Start Revealer 2... Version " + Version.full + ".")
+
     app = Revealer2()
     app.root.mainloop()
