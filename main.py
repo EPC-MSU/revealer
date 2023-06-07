@@ -820,62 +820,11 @@ class Revealer2:
                         # if we have not received this location before
                         if not data_dict["ssdp_url"] in devices:
 
+                            print(f"new device {data_dict['server']}")
+
+                            threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
+
                             devices.add(data_dict["ssdp_url"])
-
-                            xml_dict = self.parse_upnp_xml(data_dict["location"])
-
-                            # check is this our device or not
-                            version_with_settings = ""
-                            type_device = Revealer2.DEVICE_TYPE_OUR
-                            other_type = Revealer2.DEVICE_TYPE_OTHER
-
-                            device_index_in_list = self.find_ssdp_enhanced_device(data_dict["server"])
-
-                            if device_index_in_list is not None:
-                                version_with_settings = self.SSDP_ENHANCED_DEVICES[device_index_in_list].enhanced_ssdp_support_min_fw
-                                type_device = Revealer2.DEVICE_TYPE_OUR
-                                device_number[Revealer2.DEVICE_TYPE_OTHER] += 1
-                                uuid = data_dict["uuid"]
-
-                                # we need to check that if we have our device it supports setting settings via multicast
-                                if version_with_settings != "":
-                                    version_with_settings_array = [int(num) for num in version_with_settings.split('.')]
-                                    current_version = data_dict["version"].split('.')
-                                    current_version_array = [int(num) for num in current_version]
-
-                                    # check that we have version greater than this
-                                    if current_version_array[0] < version_with_settings_array[0]:
-                                        uuid = ""
-                                    elif current_version_array[1] < version_with_settings_array[1]:
-                                        uuid = ""
-                                    elif current_version_array[2] < version_with_settings_array[2]:
-                                        uuid = ""
-
-                            else:
-                                type_device = Revealer2.DEVICE_TYPE_OTHER
-                                uuid = None
-                                pass
-
-                            if xml_dict is not None:
-                                # check that we have our url with correct format
-                                if xml_dict["presentationURL"][0:4] != "http":
-                                    link = "http://" + addr[0] + xml_dict["presentationURL"]
-                                else:
-                                    link = xml_dict["presentationURL"]
-
-                                xml_dict["version"] = data_dict["version"]
-
-                                with self.main_table.lock:
-                                    self.main_table.move_table_rows(self.main_table.last_row)
-                                    self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
-                                                                      link, data_dict["ssdp_url"], uuid, xml_dict, tag="local")
-                            else:
-                                with self.main_table.lock:
-                                    self.main_table.move_table_rows(self.main_table.last_row)
-                                    self.main_table.add_row_ssdp_item(data_dict["server"],
-                                                      data_dict["ssdp_url"], data_dict["ssdp_url"], uuid, data_dict, tag="not_local")
-
-                            device_number[type_device] += 1
 
                 except socket.timeout:
                     self._notify_stop_flag = True
@@ -886,6 +835,67 @@ class Revealer2:
         self.button.update()
 
         return
+
+    def add_new_item_task(self, data_dict, addr, notify_flag=False):
+
+        print(f"thread for {data_dict} is started.")
+
+        xml_dict = self.parse_upnp_xml(data_dict["location"])
+
+        # check is this our device or not
+        version_with_settings = ""
+
+        device_index_in_list = self.find_ssdp_enhanced_device(data_dict["server"])
+
+        if device_index_in_list is not None:
+            version_with_settings = \
+                self.SSDP_ENHANCED_DEVICES[device_index_in_list].enhanced_ssdp_support_min_fw
+            uuid = data_dict["uuid"]
+
+            # we need to check that if we have our device it supports setting settings via multicast
+            if version_with_settings != "":
+                version_with_settings_array = [int(num) for num in version_with_settings.split('.')]
+                current_version = data_dict["version"].split('.')
+                current_version_array = [int(num) for num in current_version]
+
+                # check that we have version greater than this
+                if current_version_array[0] < version_with_settings_array[0]:
+                    uuid = ""
+                elif current_version_array[1] < version_with_settings_array[1]:
+                    uuid = ""
+                elif current_version_array[2] < version_with_settings_array[2]:
+                    uuid = ""
+
+        else:
+            if not notify_flag:
+                uuid = None
+                pass
+            else:
+                # if this is not our device - we don't need its notify message
+                return
+
+        if xml_dict is not None:
+            # check that we have our url with correct format
+            if xml_dict["presentationURL"][0:4] != "http":
+                link = "http://" + addr[0] + xml_dict["presentationURL"]
+            else:
+                link = xml_dict["presentationURL"]
+
+            xml_dict["version"] = data_dict["version"]
+
+            with self.main_table.lock:
+                self.main_table.move_table_rows(self.main_table.last_row)
+                self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
+                                                  link, data_dict["ssdp_url"], uuid, xml_dict,
+                                                  tag="local")
+        else:
+            with self.main_table.lock:
+                self.main_table.move_table_rows(self.main_table.last_row)
+                self.main_table.add_row_ssdp_item(data_dict["server"],
+                                                  data_dict["ssdp_url"], data_dict["ssdp_url"],
+                                                  uuid, data_dict, tag="not_local")
+
+        print(f"thread for {data_dict} is ended.")
 
     def listen_notify_task(self, interface_ip):
         """
@@ -928,57 +938,8 @@ class Revealer2:
 
                         devices.add(data_dict["ssdp_url"])
 
-                        # check is this our device or not
-                        version_with_settings = ""
-                        type_device = Revealer2.DEVICE_TYPE_OUR
-                        other_type = Revealer2.DEVICE_TYPE_OTHER
-
-                        device_index_in_list = self.find_ssdp_enhanced_device(data_dict["server"])
-
-                        if device_index_in_list is not None:
-                            version_with_settings = self.SSDP_ENHANCED_DEVICES[
-                                device_index_in_list].enhanced_ssdp_support_min_fw
-                            uuid = data_dict["uuid"]
-
-                            # we need to check that if we have our device it supports setting settings via multicast
-                            if version_with_settings != "":
-                                version_with_settings_array = [int(num) for num in version_with_settings.split('.')]
-                                current_version = data_dict["version"].split('.')
-                                current_version_array = [int(num) for num in current_version]
-
-                                # check that we have version greater than this
-                                if current_version_array[0] < version_with_settings_array[0]:
-                                    uuid = ""
-                                elif current_version_array[1] < version_with_settings_array[1]:
-                                    uuid = ""
-                                elif current_version_array[2] < version_with_settings_array[2]:
-                                    uuid = ""
-
-                        else:
-                            # if this is not our device - we don't need its notify
-                            continue
-
-                        xml_dict = self.parse_upnp_xml(data_dict["location"])
-
-                        if xml_dict is not None:
-                            # check that we have our url with correct format
-                            if xml_dict["presentationURL"][0:4] != "http":
-                                link = "http://" + addr[0] + xml_dict["presentationURL"]
-                            else:
-                                link = xml_dict["presentationURL"]
-
-                            xml_dict["version"] = data_dict["version"]
-
-                            with self.main_table.lock:
-                                self.main_table.move_table_rows(self.main_table.last_row)
-                                self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
-                                                                  link, data_dict["ssdp_url"], uuid, xml_dict, tag="local")
-                        else:
-                            with self.main_table.lock:
-                                self.main_table.move_table_rows(self.main_table.last_row)
-                                self.main_table.add_row_ssdp_item(data_dict["server"],
-                                                                  data_dict["ssdp_url"], data_dict["ssdp_url"], uuid, data_dict,
-                                                                  tag="not_local")
+                        # TODO: add task for adding device here!!!!
+                        threading.Thread(target=self.add_new_item_task, args=[data_dict, addr, True]).start()
 
         except socket.timeout:
             sock.close()
@@ -1007,19 +968,19 @@ class Revealer2:
                     except IndexError:
                         ssdp_dict["version"] = '-'
 
-                elif words_string[
-                    0].lower() == Revealer2.SSDP_HEADER_LOCATION:  # format: LOCATION: http://172.16.130.67:80/Basic_info.xml
+                elif words_string[0].lower() ==\
+                        Revealer2.SSDP_HEADER_LOCATION:  # format: LOCATION: http://172.16.130.67:80/Basic_info.xml
                     words_string = string.split(':')  # do this again for symmetry
-                    if words_string[1][
-                        0] != ' ':  # we should check if we have ' ' here and not take it to the location string
+                    if words_string[1][0] !=\
+                            ' ':  # we should check if we have ' ' here and not take it to the location string
                         ssdp_dict["location"] = words_string[1] + ':' + words_string[2] + ':' + words_string[3]
                     else:
                         ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' + words_string[3]
 
                     ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP  addr
 
-                elif words_string[
-                    0].lower() == Revealer2.SSDP_HEADER_USN:  # format: USN: uuid:40001d0a-0000-0000-8e31-4010900b00c8::upnp:rootdevice
+                elif words_string[0].lower() ==\
+                        Revealer2.SSDP_HEADER_USN:  # format: USN: uuid:40001d0a-0000-0000-8e31-4010900b00c8::upnp:rootdevice
                     words_string = string.split(':')  # do this again for symmetry
                     ssdp_dict["uuid"] = words_string[2]
 
@@ -1030,7 +991,7 @@ class Revealer2:
         xml_dict = {}
 
         try:
-            response = urllib.request.urlopen(url, timeout=0.1).read().decode('utf-8')
+            response = urllib.request.urlopen(url, timeout=1).read().decode('utf-8')
             data = response.split('\r\n\r\n')  # we need to get rid of the headers
 
             tree = ET.fromstring(data[len(data) - 1])
@@ -1175,7 +1136,8 @@ class Revealer2:
 
             mb.showinfo(
                 "Change settings...",
-                "Success.\nNew settings were applied.\nPlease update list of the devices to find this device with the new IP address.",
+                "Success.\nNew settings were applied.\nPlease update list of the devices "
+                "to find this device with the new IP address.",
                 parent=self.root
             )
 
