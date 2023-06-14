@@ -1,7 +1,9 @@
 import os
 import re
+import logging as log
 
-from tkinter import *
+from tkinter import Tk, Frame, Label, Canvas, PhotoImage, LabelFrame, TclError, HORIZONTAL, VERTICAL, LEFT, Entry, \
+    Checkbutton, Button, ACTIVE, END, IntVar
 from tkinter import ttk, font
 import tkinter.messagebox as mb
 import tkinter.simpledialog as sd
@@ -115,7 +117,7 @@ class VerticalScrolledFrame(Frame):
 
         self.interior.bind('<Configure>', self._configure_interior)
         self.canvas.bind('<Configure>', self._configure_canvas)
-        self.interior_id = self.canvas.create_window(0, 0, window=self.interior, anchor=NW)
+        self.interior_id = self.canvas.create_window(0, 0, window=self.interior, anchor="nw")
 
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
         # in Unix systems we need to use Button-4 and Button-5 as MouseWheel indication
@@ -134,10 +136,10 @@ class VerticalScrolledFrame(Frame):
                 self.canvas.yview_scroll(int(1), "units")
             else:
                 # auto calculate for mouse wheel in windows
-                if event.delta >=120 or event.delta <= -120:
+                if event.delta >= 120 or event.delta <= -120:
                     self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
                 else:
-                    self.canvas.yview_scroll(int((event.delta)), "units")
+                    self.canvas.yview_scroll(int(event.delta), "units")
 
     def _configure_interior(self, event):
         # Update the scrollbars to match the size of the inner frame.
@@ -202,7 +204,7 @@ class RevealerTable:
         try:
             test_label = Label(self.main_table, text='', cursor=self.pointer_cursor)
             test_label.destroy()
-        except TclError as err:
+        except TclError:
             self.pointer_cursor = CURSOR_POINTER
 
     def create_table(self, master, col, row, height):
@@ -216,7 +218,8 @@ class RevealerTable:
         new_table = self.great_table.interior
 
         # add headers
-        header_1 = Label(new_table, text="SSDP Devices", anchor="center", background=self.HEADER_COLOR, fg=DEFAULT_TEXT_COLOR)
+        header_1 = Label(new_table, text="SSDP Devices", anchor="center", background=self.HEADER_COLOR,
+                         fg=DEFAULT_TEXT_COLOR)
         header_1.grid(row=0, column=0, sticky="ew")
         header_1.tag = self.HEADER_TAG
 
@@ -224,7 +227,8 @@ class RevealerTable:
         header_2.grid(row=0, column=1, sticky="news")
         header_2.tag = self.HEADER_TAG
 
-        header_3 = Label(new_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0, fg=DEFAULT_TEXT_COLOR)
+        header_3 = Label(new_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0,
+                         fg=DEFAULT_TEXT_COLOR)
         header_3.grid(row=0, column=2, sticky="ew")
         header_3.tag = self.HEADER_TAG
 
@@ -273,12 +277,14 @@ class RevealerTable:
 
         try:
             presence_whole = self.ip_dict_whole[ip_address]
+            log.debug(presence_whole)
             return
         except KeyError:
             self.ip_dict_whole[ip_address] = name
 
         try:
             presence = self.ssdp_dict[name+link]
+            log.debug(presence)
             return
         except KeyError:
             self.ssdp_dict[name+link] = self.last_row
@@ -427,6 +433,7 @@ class RevealerTable:
 
         try:
             presence_whole = self.ip_dict_whole[link]
+            log.debug(presence_whole)
             return
         except KeyError:
             self.ip_dict_whole[link] = name
@@ -563,7 +570,6 @@ class RevealerTable:
         for widget in self.main_table.winfo_children():
             try:
                 row = widget.grid_info()['row']
-                col = widget.grid_info()['column']
                 if row == del_row:
                     widget.destroy()
             except KeyError:
@@ -633,18 +639,18 @@ class Revealer2:
         try:
             test_label = Label(self.root, text='', cursor=self.pointer_cursor)
             test_label.destroy()
-        except TclError as err:
+        except TclError:
             self.pointer_cursor = CURSOR_POINTER
 
         # add revealer icon
         try:
             self.root.iconphoto(False, PhotoImage(file=os.path.join(os.path.dirname(__file__),
                                                                     "resources/appicon.png")))
-        except:
+        except Exception:
             pass
 
         mainframe = ttk.Frame(self.root, padding="8 3 8 8")
-        mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
+        mainframe.grid(column=0, row=0, sticky="news")
 
         mainframe.grid_rowconfigure(1, weight=1)
         # mainframe.grid_rowconfigure(2, weight=1)
@@ -717,7 +723,6 @@ class Revealer2:
 
         if tree.winfo_class() == "Treeview":
             region = tree.identify_region(self.event.x, self.event.y)
-            col = tree.identify_column(self.event.x)
             iid = tree.identify('item', self.event.x, self.event.y)
 
             name = ''
@@ -795,13 +800,12 @@ class Revealer2:
 
         self.button["state"] = "disabled"
         self.button["text"] = "Searching..."
+        self.button["cursor"] = ""
         self.button.update()
 
         devices = set()
 
         adapters = ifaddr.get_adapters()
-
-        device_number = [0, 0]
 
         for adapter in adapters:
             for ip in adapter.ips:
@@ -815,7 +819,7 @@ class Revealer2:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
                 try:
                     sock.bind((ip.ip, 0))
-                except:
+                except Exception:
                     continue
 
                 # if ip.ip is suitable for m-search - try to listen for notify messages also
@@ -826,7 +830,7 @@ class Revealer2:
                 sock.settimeout(1)
                 try:
                     sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
-                except OSError as err:
+                except OSError:
                     continue
 
                 # listen and capture returned responses
@@ -846,6 +850,10 @@ class Revealer2:
                     sock.close()
 
         self.button["state"] = "normal"
+        try:
+            self.button["cursor"] = CURSOR_POINTER_MACOS
+        except TclError:
+            self.button["cursor"] = CURSOR_POINTER
         self.button["text"] = "Search"
         self.button.update()
 
@@ -918,19 +926,7 @@ class Revealer2:
         :return:
         """
 
-        # devices found with notify listening
-        devices = set()
-
         multicast_group = '239.255.255.250'
-
-        # sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        # sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
-        # try:
-        #     sock.bind(('', multicast_port))
-        # except OSError as err:
-        #    print("can't bind notify", interface_ip, err)
-        #    sock.close()
-        #    return
 
         try:
             self.sock_notify.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
@@ -951,12 +947,6 @@ class Revealer2:
 
                     data_dict = self.parse_ssdp_data(data.decode('utf-8'))
 
-                    # if we have not received this location before
-                    # if not data_dict["ssdp_url"] in devices:
-
-                        # devices.add(data_dict["ssdp_url"])
-
-                    # TODO: add task for adding device here!!!!
                     threading.Thread(target=self.add_new_item_task, args=[data_dict, addr, True]).start()
 
         except socket.timeout:
@@ -965,7 +955,6 @@ class Revealer2:
 
         # close socket at the end
         # sock.close()
-        devices = ()
 
     @staticmethod
     def parse_ssdp_data(ssdp_data):
@@ -976,8 +965,8 @@ class Revealer2:
             if string[0:3].lower() != Revealer2.SSDP_HEADER_HTTP:
                 words_string = string.split(':')
 
-                if words_string[
-                    0].lower() == Revealer2.SSDP_HEADER_SERVER:  # format: SERVER: lwIP/1.4.1 UPnP/2.0 8SMC5-USB/4.7.7
+                if words_string[0].lower()\
+                        == Revealer2.SSDP_HEADER_SERVER:  # format: SERVER: lwIP/1.4.1 UPnP/2.0 8SMC5-USB/4.7.7
                     words_string = string.split(' ')
                     server_version = words_string[len(words_string) - 1]  # last word after ' '
                     server_version_words = server_version.split('/')
@@ -1000,7 +989,7 @@ class Revealer2:
                     ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP  addr
 
                 elif words_string[0].lower() ==\
-                        Revealer2.SSDP_HEADER_USN:  # format: USN: uuid:40001d0a-0000-0000-8e31-4010900b00c8::upnp:rootdevice
+                        Revealer2.SSDP_HEADER_USN:  # USN: uuid:40001d0a-0000-0000-8e31-4010900b00c8::upnp:rootdevice
                     words_string = string.split(':')  # do this again for symmetry
                     ssdp_dict["uuid"] = words_string[2]
 
@@ -1028,7 +1017,7 @@ class Revealer2:
 
             return xml_dict
 
-        except:
+        except Exception:
             return None
 
     def change_ip_multicast(self, uuid, settings_dict):
@@ -1067,6 +1056,7 @@ class Revealer2:
                                 '\r\n'
 
         self.button["state"] = "disabled"
+        self.button["cursor"] = ""
         self.button["text"] = "Search"
         self.button.update()
 
@@ -1088,8 +1078,7 @@ class Revealer2:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
                 try:
                     sock.bind((ip.ip, 0))
-                except Exception as err:
-                    print(err)
+                except Exception:
                     continue
 
                 # try to listen to the notify too because if we are trying to change something in another network
@@ -1106,8 +1095,7 @@ class Revealer2:
                 sock.settimeout(1)
                 try:
                     sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
-                except OSError as err:
-                    print(err)
+                except OSError:
                     continue
 
                 # listen and capture returned responses
@@ -1159,10 +1147,11 @@ class Revealer2:
                 parent=self.root
             )
 
-        # TODO: we should check if we have changed the device's settings or not
-        # TODO: problem is that maybe we shouldn't response with some new data you know
-
         self.button["state"] = "normal"
+        try:
+            self.button["cursor"] = CURSOR_POINTER_MACOS
+        except TclError:
+            self.button["cursor"] = CURSOR_POINTER
         self.button["text"] = "Search"
         self.button.update()
 
@@ -1222,19 +1211,19 @@ class Revealer2:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 try:
                     sock.bind((ip.ip, 0))
-                except:
+                except Exception:
                     continue
 
                 try:
                     message = "DISCOVER_CUBIELORD_REQUEST " + str(sock.getsockname()[1])
-                except:
+                except Exception:
                     print('error while getting socket port number')
                     continue
 
                 sock.settimeout(0.5)
                 try:
                     sock.sendto(message.encode('utf-8'), ("255.255.255.255", 8008))
-                except OSError as err:
+                except OSError:
                     continue
 
                 # listen and capture returned responses
@@ -1286,7 +1275,7 @@ class ButtonSettings:
         try:
             test_label = Label(master, text='', cursor=self.pointer_cursor)
             test_label.destroy()
-        except TclError as err:
+        except TclError:
             self.pointer_cursor = CURSOR_POINTER
 
         if state == "normal":
@@ -1316,8 +1305,8 @@ class ButtonSettings:
 
         photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/properties.png'))
 
-        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color, cursor=self.pointer_cursor,
-                        highlightbackground=bg_color)
+        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color,
+                        cursor=self.pointer_cursor, highlightbackground=bg_color)
         button.grid(column=0, row=0, ipadx=0, ipady=0, padx=0, pady=0)
         button.image = photo
         button.bg_default = bg_color
@@ -1344,7 +1333,8 @@ class ButtonSettings:
 
     def _on_enter(self, event):
         if event.widget["state"] != "disabled":
-            event.widget.configure(bg=event.widget['activebackground'], highlightbackground=event.widget['activebackground'])
+            event.widget.configure(bg=event.widget['activebackground'],
+                                   highlightbackground=event.widget['activebackground'])
 
     def _on_leave(self, event):
         if event.widget["state"] != "disabled":
@@ -1353,10 +1343,10 @@ class ButtonSettings:
 
 class MIPASDialog(sd.Dialog):
 
-    NET_MASK_RE = "^(((255\.){3}(252|248|240|224|192|128|0+))|((255\.){2}(255|254|252|248|240|224|192|128|0+)\.0)" \
-                 "|((255\.)(255|254|252|248|240|224|192|128|0+)(\.0+){2})" \
-                 "|((255|254|252|248|240|224|192|128|0+)(\.0+){3}))$"
-    IP_ADDRESS_RE = "^(([0-1]?[0-9]?[0-9]?|2[0-4][0-9]|25[0-5])\.){3}([0-1]?[0-9]?[0-9]?|2[0-4][0-9]|25[0-5]){1}$"
+    NET_MASK_RE = "^(((255\\.){3}(252|248|240|224|192|128|0+))|((255\\.){2}(255|254|252|248|240|224|192|128|0+)\\.0)" \
+                 "|((255\\.)(255|254|252|248|240|224|192|128|0+)(\\.0+){2})" \
+                 "|((255|254|252|248|240|224|192|128|0+)(\\.0+){3}))$"
+    IP_ADDRESS_RE = "^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$"
 
     DEFAULT_ENTRY_IP_TEXT = "192.168.1.1"
     DEFAULT_ENTRY_MASK_TEXT = "255.255.0.0"
@@ -1423,21 +1413,21 @@ class MIPASDialog(sd.Dialog):
         device_frame = Frame(master)
         device_frame.grid(row=0, column=0, sticky='news')
 
-        Label(device_frame, text="Device: ", justify=LEFT).grid(column=0, row=0, padx=5, sticky=W)
-        Label(device_frame, text=self.device, justify=LEFT).grid(column=1, row=0, padx=5, sticky=W)
+        Label(device_frame, text="Device: ", justify=LEFT).grid(column=0, row=0, padx=5, sticky='w')
+        Label(device_frame, text=self.device, justify=LEFT).grid(column=1, row=0, padx=5, sticky='w')
 
         if self.uuid != '':
-            Label(device_frame, text="UUID: ", justify=LEFT).grid(column=0, row=1, padx=5, sticky=W)
-            Label(device_frame, text=self.uuid, justify=LEFT).grid(column=1, row=1, padx=5, sticky=W)
+            Label(device_frame, text="UUID: ", justify=LEFT).grid(column=0, row=1, padx=5, sticky='w')
+            Label(device_frame, text=self.uuid, justify=LEFT).grid(column=1, row=1, padx=5, sticky='w')
 
-        Label(device_frame, text="Password: ", justify=LEFT).grid(column=0, row=2, padx=5, pady=5, sticky=W)
+        Label(device_frame, text="Password: ", justify=LEFT).grid(column=0, row=2, padx=5, pady=5, sticky='w')
         self.entry_password = Entry(device_frame, name="entry_password", show="*")
-        self.entry_password.grid(column=1, row=2, padx=5, pady=5, sticky=W + E)
+        self.entry_password.grid(column=1, row=2, padx=5, pady=5, sticky='ew')
 
         # blank row
-        Label(master, text="", justify=LEFT).grid(column=0, row=1, padx=5, sticky=W)
+        Label(master, text="", justify=LEFT).grid(column=0, row=1, padx=5, sticky='w')
         # blank row
-        Label(master, text="", justify=LEFT).grid(column=0, row=3, padx=5, sticky=W)
+        Label(master, text="", justify=LEFT).grid(column=0, row=3, padx=5, sticky='w')
 
         frame = LabelFrame(master, text="Network settings", fg=DEFAULT_TEXT_COLOR,
                            font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
@@ -1445,14 +1435,14 @@ class MIPASDialog(sd.Dialog):
         frame.grid(row=2, column=0, sticky='ns')
 
         # row for DHCP state
-        Label(frame, text="Get IP from DHCP: ", justify=LEFT).grid(column=0, row=3, padx=8, pady=8, sticky=W)
+        Label(frame, text="Get IP from DHCP: ", justify=LEFT).grid(column=0, row=3, padx=8, pady=8, sticky='w')
         self.checkbox_dhcp = Checkbutton(frame, variable=self.dhcp, command=self._dhcp_change_state)
-        self.checkbox_dhcp.grid(column=1, row=3, sticky=W)
+        self.checkbox_dhcp.grid(column=1, row=3, sticky='w')
 
         # row for IP address
-        Label(frame, text="IP address: ", justify=LEFT).grid(column=0, row=4, padx=8, pady=8, sticky=W)
+        Label(frame, text="IP address: ", justify=LEFT).grid(column=0, row=4, padx=8, pady=8, sticky='w')
         self.entry_ip = Entry(frame, name="entry_ip", fg=self.DEFAULT_ENTRY_TEXT_COLOR)
-        self.entry_ip.grid(column=1, row=4, padx=8, pady=8, sticky=W + E)
+        self.entry_ip.grid(column=1, row=4, padx=8, pady=8, sticky='ew')
 
         # start with the default text
         self.entry_ip.insert(0, self.DEFAULT_ENTRY_IP_TEXT)
@@ -1463,9 +1453,9 @@ class MIPASDialog(sd.Dialog):
         self.entry_ip.default = True
 
         # row for Net Mask
-        Label(frame, text="Network Mask: ", justify=LEFT).grid(column=0, row=5, padx=8, pady=8, sticky=W)
+        Label(frame, text="Network Mask: ", justify=LEFT).grid(column=0, row=5, padx=8, pady=8, sticky='w')
         self.entry_mask = Entry(frame, name="entry_mask", fg=self.DEFAULT_ENTRY_TEXT_COLOR)
-        self.entry_mask.grid(column=1, row=5, padx=8, pady=8, sticky=W + E)
+        self.entry_mask.grid(column=1, row=5, padx=8, pady=8, sticky='ew')
 
         # start with the default text
         self.entry_mask.insert(0, self.DEFAULT_ENTRY_MASK_TEXT)
@@ -1476,9 +1466,9 @@ class MIPASDialog(sd.Dialog):
         self.entry_mask.default = True
 
         # row for Gateway
-        Label(frame, text="Default Gateway: ", justify=LEFT).grid(column=0, row=6, padx=8, pady=8, sticky=W)
+        Label(frame, text="Default Gateway: ", justify=LEFT).grid(column=0, row=6, padx=8, pady=8, sticky='w')
         self.entry_gateway = Entry(frame, name="entry_gateway", fg=self.DEFAULT_ENTRY_TEXT_COLOR)
-        self.entry_gateway.grid(column=1, row=6, padx=8, pady=8, sticky=W + E)
+        self.entry_gateway.grid(column=1, row=6, padx=8, pady=8, sticky='ew')
 
         # start with the default text
         self.entry_gateway.insert(0, self.DEFAULT_ENTRY_GATEWAY_TEXT)
@@ -1534,32 +1524,31 @@ class MIPASDialog(sd.Dialog):
             if self.check_format(result_ip['ip'], self.IP_ADDRESS_RE):
                 if len(warning_msg) > 0:
                     warning_msg += "\n\n"
-                warning_msg += "IP Address format is incorrect. Only #.#.#.#, where # stands" \
-                               " for number from 0 to 255," \
-                               " format is supported.\nExample: 192.168.1.1."
+                warning_msg += "IP Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
+                               " number from 0 to 255." \
+                               "\nExample: 192.168.1.1."
 
             if self.check_format(result_ip['netmask'], self.NET_MASK_RE):
                 if len(warning_msg) > 0:
                     warning_msg += "\n\n"
-                warning_msg += "\nNetwork Mask format is incorrect.\nExample: 255.255.0.0."
+                warning_msg += "\nNetwork Mask format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
+                               " number from 0 to 255.\nExample: 255.255.0.0."
 
-            if result_ip['gateway'] != '':
+            if result_ip['gateway'] != '' and self.check_format(result_ip['gateway'], self.IP_ADDRESS_RE):
                 if len(warning_msg) > 0:
                     warning_msg += "\n\n"
-                warning_msg += "Gateway Address format is incorrect. Only #.#.#.#, where #" \
-                               " stands for number from 0 to 255," \
-                               " format is supported.\nExample: 192.168.1.1."
-
-            print("Warning: ", warning_msg)
+                warning_msg += "Gateway Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
+                               " number from 0 to 255." \
+                               "\nExample: 192.168.1.1."
 
             if len(warning_msg) > 0:
                 mb.showwarning("Warning", warning_msg, parent=self)
                 return 0
 
         elif result_ip['dhcp'] == 1:
-            result_ip['ip'] = '0.0.0.0'
-            result_ip['netmask'] = '0.0.0.0'
-            result_ip['gateway'] = '0.0.0.0'
+            result_ip['ip'] = '192.168.2.1'
+            result_ip['netmask'] = '255.255.0.0'
+            result_ip['gateway'] = '192.168.1.1'
 
         if result_ip['gateway'] == '':
             result_ip['gateway'] = '0.0.0.0'
@@ -1590,7 +1579,7 @@ class MIPASDialog(sd.Dialog):
 
     @staticmethod
     def check_format(string, re_format) -> bool:
-        print('Check format:', string, re_format)
+
         ip_format = re.compile(re_format)
 
         if ip_format.match(string) is not None:
@@ -1619,7 +1608,7 @@ class PropDialog(sd.Dialog):
         try:
             test_label = Label(parent, text='', cursor=self.pointer_cursor)
             test_label.destroy()
-        except TclError as err:
+        except TclError:
             self.pointer_cursor = CURSOR_POINTER
 
         sd.Dialog.__init__(self, parent, device_name)
@@ -1638,21 +1627,19 @@ class PropDialog(sd.Dialog):
                 try:
                     label_name = self.labels_dict[name]
                     Label(master, text=label_name + ": ", justify=LEFT, fg=DEFAULT_TEXT_COLOR,
-                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold')).grid(column=0,
-                                                                                                            row=row_index,
-                                                                                                            padx=5,
-                                                                                                            sticky=W)
+                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+                                'bold')).grid(column=0, row=row_index, padx=5, sticky='w')
                     if name == 'presentationURL':
                         Label(master, text=self.url, justify=LEFT, cursor=self.pointer_cursor, fg=DEFAULT_TEXT_COLOR,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline')).grid(
-                            column=1, row=row_index, padx=5, sticky=W)
+                            column=1, row=row_index, padx=5, sticky='w')
                     else:
                         if self.dict[name][0:4] == "http":
                             font_style = 'underline'
                             cursor = self.pointer_cursor
                         Label(master, text=self.dict[name], justify=LEFT, cursor=cursor, fg=DEFAULT_TEXT_COLOR,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_style)).grid(
-                            column=1, row=row_index, padx=5, sticky=W)
+                            column=1, row=row_index, padx=5, sticky='w')
                     row_index += 1
                 except KeyError:
                     pass
