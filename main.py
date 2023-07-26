@@ -269,11 +269,52 @@ class RevealerTable:
                 # and if does not have any tag at all
                 i.destroy()
 
+    def add_device_to_ssdp_dict(self, device, type, raw):
+        """
+        Method which sort dictionary with ssdp found device for putting our devices higher in the list and sort in
+        alphabetical order in our and other?
+
+        :return: None
+        """
+
+        our_dict = {}
+        other_dict = {}
+
+        # find end of the our list to sort only them
+        for ex_device in self.ssdp_dict:
+            if self.ssdp_dict[ex_device]['type'] == Revealer2.DEVICE_TYPE_OUR:
+                our_dict[ex_device] = self.ssdp_dict[ex_device]
+            else:
+                other_dict[ex_device] = self.ssdp_dict[ex_device]
+
+        if type == Revealer2.DEVICE_TYPE_OUR:
+            our_dict[device] = {'type': type, 'raw': raw}
+            sorted_list = sorted(our_dict, key=lambda v: v.upper())
+            alpha_row = sorted_list.index(device) + 1
+
+        else:
+            other_dict[device] = {'type': type, 'raw': raw}
+            sorted_list = sorted(other_dict, key=lambda v: v.upper())
+            alpha_row = sorted_list.index(device) + 1 + len(our_dict)
+
+        self.ssdp_dict[device] = {'type': type, 'raw': raw}
+
+        return alpha_row
+
     def add_row_ssdp_item(self, name, link, ip_address, uuid, other_data, tag):
 
         # we need to sort alphabetically at every moment
         # so... ignore the new row i guess
         # first of all check if had this object already
+
+        # todo: we need to put our devices on top of the list
+        # for this aim we parse uuid since we add uuid here only for our devices
+        if uuid is None:
+            # other device
+            type = Revealer2.DEVICE_TYPE_OTHER
+        else:
+            # our device
+            type = Revealer2.DEVICE_TYPE_OUR
 
         try:
             presence_whole = self.ip_dict_whole[ip_address]
@@ -287,12 +328,13 @@ class RevealerTable:
             log.debug(presence)
             return
         except KeyError:
-            self.ssdp_dict[name+link] = self.last_row
+            alpha_row = self.add_device_to_ssdp_dict(name+link, type, self.last_row)
+            # self.ssdp_dict[name+link] = {'type': type, 'row': self.last_row}
 
-        sorted_list = sorted(self.ssdp_dict)
+        # sorted_list = sorted(self.ssdp_dict)
 
-        alpha_row = sorted_list.index(name+link) + 1
-        self.ssdp_dict[name + link] = alpha_row
+        # alpha_row = sorted_list.index(name+link) + 1
+        self.ssdp_dict[name + link]['row'] = alpha_row
 
         if alpha_row < self.last_row:
             self.move_table_rows(alpha_row)
@@ -311,15 +353,21 @@ class RevealerTable:
         middle.grid(row=alpha_row, column=3, sticky='news')
         middle.tag = tag
 
+        font_weight = 'bold'
+
+        if uuid is None:
+            font_weight = ''
+
         if tag != "not_local":
             device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
             link_l = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor=self.pointer_cursor,
                            fg="blue", font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
         else:
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR)
+            device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR,
+                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
             link_l = Label(self.main_table, text=link, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
+                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
 
         link_l.grid(row=alpha_row, column=2, sticky="ew")
         device.grid(row=alpha_row, column=0, sticky="ew")
@@ -337,12 +385,7 @@ class RevealerTable:
         link_l.other_data = other_data
 
         # add settings button
-
         if uuid is None:
-            # blank_settings = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
-            # blank_settings.grid(row=alpha_row, column=4, sticky='news')
-            # blank_settings.tag = tag
-
             ButtonSettings(self.main_table, col=4, row=alpha_row,
                            command_change=lambda: self.settings_func(name, uuid, link_l['text']),
                            command_view=lambda: self.properties_view_func(other_data, link_l['text']),
@@ -422,8 +465,8 @@ class RevealerTable:
 
         # update all dictionaries
         for name in self.ssdp_dict:
-            if self.ssdp_dict[name] >= row_start:
-                self.ssdp_dict[name] += additional_row
+            if self.ssdp_dict[name]['row'] >= row_start:
+                self.ssdp_dict[name]['row'] += additional_row
 
         for name in self.legacy_dict:
             if self.legacy_dict[name] >= row_start:
@@ -589,6 +632,11 @@ class Revealer2:
 
     MULTICAST_SSDP_PORT = 1900
 
+    TAG_LOCAL = "local"
+    TAG_LOCAL_OTHER = "local_other"
+    TAG_NOT_LOCAL = "not_local"
+    TAG_OLD_LOCAL = "old_local"
+
     # To add support of our new device add it in ths dictionary
     #
     # Format: "Name of its SSDP-server": "version of the firmware from which setting IP via multicast is supported"
@@ -596,7 +644,7 @@ class Revealer2:
     #
     # Take note that "Name of its SSDP-server" must be equal to the name in the SERVER string which this device is
     # sending to the SSDP M_SEARCH.
-    # OUR_DEVICE_DICT = {"8SMC5-USB": "4.7.8", "Eth232-4P": "1.0.13", "mDrive": ""}
+    # OUR_DEVICE_DICT = {"8SMC5-USB": "4.7.8", "Eth232-4P": "1.0.13", "mDrive": "6.0.1"}
 
     SSDP_ENHANCED_DEVICES = [
         SSDPEnhancedDevice(
@@ -611,7 +659,7 @@ class Revealer2:
         ),
         SSDPEnhancedDevice(
             ssdp_device_name="mDrive",
-            enhanced_ssdp_support_min_fw="4.7.9",
+            enhanced_ssdp_support_min_fw="6.0.1",
             enhanced_ssdp_version="1.0.0"
         )
     ]
@@ -653,10 +701,7 @@ class Revealer2:
         mainframe.grid(column=0, row=0, sticky="news")
 
         mainframe.grid_rowconfigure(1, weight=1)
-        # mainframe.grid_rowconfigure(2, weight=1)
         mainframe.grid_columnconfigure(0, weight=1)
-
-        # mainframe.pack(fill='both', expand="yes")
 
         mainframe.propagate(False)
 
@@ -770,20 +815,20 @@ class Revealer2:
 
             if event is not None:
                 if region == 'cell' and col == '#3':
-                    if tags == "local" or tags == "old_local":
+                    if tags == self.TAG_LOCAL or tags == self.TAG_OLD_LOCAL:
                         wb.open_new_tab(link)  # open the link in a browser tab
                     else:
                         print("Can't open this link.")
             else:
                 if region == 'cell':
-                    if tags == "local" or tags == "old_local":
+                    if tags == self.TAG_LOCAL or tags == self.TAG_OLD_LOCAL:
                         wb.open_new_tab(link)  # open the link in a browser tab
                     else:
                         print("Can't open this link.")
 
         if tree.winfo_class() == 'Label':
             if hasattr(tree, 'link') and hasattr(tree, 'tag'):
-                if tree.tag == "local" or tree.tag == "old_local":
+                if tree.tag == self.TAG_LOCAL or tree.tag == self.TAG_OLD_LOCAL:
                     wb.open_new_tab(tree.link)  # open the link in a browser tab
                 else:
                     print("Can't open this link.")
@@ -794,7 +839,7 @@ class Revealer2:
             'M-SEARCH * HTTP/1.1\r\n' \
             'HOST:239.255.255.250:1900\r\n' \
             'ST:upnp:rootdevice\r\n' \
-            'MX:1\r\n' \
+            'MX:2\r\n' \
             'MAN:"ssdp:discover"\r\n' \
             '\r\n'
 
@@ -908,13 +953,13 @@ class Revealer2:
                 self.main_table.move_table_rows(self.main_table.last_row)
                 self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
                                                   link, data_dict["ssdp_url"], uuid, xml_dict,
-                                                  tag="local")
+                                                  tag=self.TAG_LOCAL)
         else:
             with self.main_table.lock:
                 self.main_table.move_table_rows(self.main_table.last_row)
                 self.main_table.add_row_ssdp_item(data_dict["server"],
                                                   data_dict["ssdp_url"], data_dict["ssdp_url"],
-                                                  uuid, data_dict, tag="not_local")
+                                                  uuid, data_dict, tag=self.TAG_NOT_LOCAL)
 
     def socket_notify_reinit(self):
         return
@@ -951,10 +996,6 @@ class Revealer2:
 
         except socket.timeout:
             pass
-            # sock.close()
-
-        # close socket at the end
-        # sock.close()
 
     @staticmethod
     def parse_ssdp_data(ssdp_data):
@@ -1125,7 +1166,6 @@ class Revealer2:
                         pass
 
                     sock.close()
-                    # sock_notify.close()
                     if len(devices) > 0:
                         break
                     pass
@@ -1236,7 +1276,7 @@ class Revealer2:
                             title = addr[0]
 
                             with self.main_table.lock:
-                                self.main_table.add_row_old_item(title, "http://" + addr[0], tag="old_local")
+                                self.main_table.add_row_old_item(title, "http://" + addr[0], tag=self.TAG_OLD_LOCAL)
 
                             ssdp_device_number += 1
 
@@ -1257,8 +1297,8 @@ class ButtonSettings:
     TOOLTIP_BG_COLOR = DEFAULT_BG_COLOR
     TOOLTIP_TIMEOUT = 0.75
 
-    def __init__(self, master, col, row, command_change, command_view, bg_color=DEFAULT_BG_COLOR, width=21, tag="local",
-                 state="normal", type=Revealer2.DEVICE_TYPE_OUR):
+    def __init__(self, master, col, row, command_change, command_view, bg_color=DEFAULT_BG_COLOR, width=21,
+                 tag=Revealer2.TAG_LOCAL, state="normal", type=Revealer2.DEVICE_TYPE_OUR):
         frame = Frame(master, background=bg_color, width=width, height=10)
         frame.grid(column=col, row=row, sticky='news')
         frame.propagate(False)
@@ -1500,7 +1540,7 @@ class MIPASDialog(sd.Dialog):
             )
             return 0
 
-        # TODO: maybe we need to validate here
+        # check password length
         if len(result_ip['password']) > 20:
             mb.showwarning(
                 "Password is too long",
@@ -1673,8 +1713,6 @@ class PropDialog(sd.Dialog):
                 parent=self
             )
             return 0
-
-        # TODO: maybe we need to validate here
 
         self.result = result
 
