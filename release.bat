@@ -12,7 +12,7 @@ if exist venv rd /S /Q venv
 %PYTHON% -m venv venv
 venv\Scripts\python -m pip install --upgrade pip
 venv\Scripts\python -m pip install -r requirements.txt
-venv\Scripts\python -m pip install pyinstaller
+venv\Scripts\python -m pip install pyinstaller==5.13
 venv\Scripts\pyinstaller main.py --clean --onefile --noconsole ^
 --add-data "resources\*;resources" ^
 --icon resources\appicon.ico
@@ -24,6 +24,8 @@ rename main.exe revealer.exe
 cd ..
 if exist build rd /S /Q build
 if exist dist rd /S /Q dist
-if exist venv rd /S /Q venv
+venv\Scripts\python -m pip freeze 
+venv\Scripts\python -V
+venv\Scripts\python -m pip --version
 if exist *.spec del *.spec
 pause
