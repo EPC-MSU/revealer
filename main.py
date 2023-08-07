@@ -882,7 +882,8 @@ class Revealer2:
                 try:
                     while True:
                         data, addr = sock.recvfrom(8192)
-                        data_dict = self.parse_ssdp_data(data.decode('utf-8'))
+                        data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
+                        print(addr, data_dict)
 
                         # if we have not received this location before
                         if not data_dict["ssdp_url"] in devices:
@@ -990,7 +991,7 @@ class Revealer2:
 
                 if data_strings[0] == 'NOTIFY * HTTP/1.1':
 
-                    data_dict = self.parse_ssdp_data(data.decode('utf-8'))
+                    data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
 
                     threading.Thread(target=self.add_new_item_task, args=[data_dict, addr, True]).start()
 
@@ -998,7 +999,7 @@ class Revealer2:
             pass
 
     @staticmethod
-    def parse_ssdp_data(ssdp_data):
+    def parse_ssdp_data(ssdp_data, addr):
         ssdp_dict = {"server": "", "version": "", "location": "", "ssdp_url": "", "uuid": ""}
         ssdp_strings = ssdp_data.split("\r\n")
 
@@ -1021,13 +1022,22 @@ class Revealer2:
                 elif words_string[0].lower() ==\
                         Revealer2.SSDP_HEADER_LOCATION:  # format: LOCATION: http://172.16.130.67:80/Basic_info.xml
                     words_string = string.split(':')  # do this again for symmetry
-                    if words_string[1][0] !=\
-                            ' ':  # we should check if we have ' ' here and not take it to the location string
-                        ssdp_dict["location"] = words_string[1] + ':' + words_string[2] + ':' + words_string[3]
+                    if len(words_string) == 2:
+                        if words_string[1][0] != \
+                                ' ':  # we should check if we have ' ' here and not take it to the location string
+                            ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1]
+                        else:
+                            ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1][1::1]
+                        print(ssdp_dict["location"], addr[0])
+                        ssdp_dict["ssdp_url"] = addr[0]  # save only IP  addr
                     else:
-                        ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' + words_string[3]
+                        if words_string[1][0] !=\
+                            ' ':  # we should check if we have ' ' here and not take it to the location string
+                            ssdp_dict["location"] = words_string[1] + ':' + words_string[2] + ':' + words_string[3]
+                        else:
+                            ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' + words_string[3]
 
-                    ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP  addr
+                        ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP  addr
 
                 elif words_string[0].lower() ==\
                         Revealer2.SSDP_HEADER_USN:  # USN: uuid:40001d0a-0000-0000-8e31-4010900b00c8::upnp:rootdevice
@@ -1143,7 +1153,7 @@ class Revealer2:
                 try:
                     while True:
                         data, addr = sock.recvfrom(8192)
-                        data_dict = self.parse_ssdp_data(data.decode('utf-8'))
+                        data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
 
                         # if we have not received this location before
                         if not data_dict["location"] in devices and data_dict["uuid"] == uuid:
@@ -1158,7 +1168,7 @@ class Revealer2:
 
                             if data_strings[0] == 'NOTIFY * HTTP/1.1':
 
-                                data_notify_dict = self.parse_ssdp_data(data_notify.decode('utf-8'))
+                                data_notify_dict = self.parse_ssdp_data(data_notify.decode('utf-8'), addr_notify)
 
                                 if not data_notify_dict["location"] in devices and data_notify_dict["uuid"] == uuid:
                                     devices.add(data_notify_dict["location"])
