@@ -46,7 +46,12 @@ sudo apt-get install python3.8-venv
 sudo apt-get install idle3
 ```
 
-* Чтобы полученный исполняемый файл запускался на других компьютерах не требовал смены типа на "executable", нужно заархивировать полученную при сборке папку _release_ в архив формата _tar_.
+* Чтобы полученный исполняемый файл запускался на других компьютерах не требовал смены типа на "executable", нужно заархивировать полученную при сборке папку _release_ в архив формата _tar.gz_. Чтобы сжать полученные два файла в такой архив нужно перейти в полученную в результате сборки папку release и выполнить команду сжатия:
+```bash
+cd release
+tar -czvf revealer-X.Y.Z-ubuntu64.tar.gz readme.md revealer
+```
+Вместо X.Y.Z укажите версию вашего релиза.
 
 ### Выпуск релиза в MacOS
 
@@ -81,6 +86,8 @@ print(root.tk.exprstring('$tcl_library'))   # replace /Library/Frameworks/Python
 print(root.tk.exprstring('$tk_library'))  # replace /Library/Frameworks/Python.framework/Versions/3.9/lib/tk8.6/ venv/lib/tk8.6 with this path
 ```
 А также поменяйте путь к /tcl8/ с аналогичным началом (_/Library/Frameworks/Python.framework/Versions/3.9/lib/_), как те, что выведет вам _print_ выше.
+
+__Важно__: полученное таким образом приложение для macOS с расширением _.app_ нужно запокавать в zip-архив на __той же системе, где проводилась сборка__, иначе файлы внутри приложения могут побиться (при переносе на другую ОС) и в итоге приложение из такого архива запускаться не будет.
 
 6. Полученные релизы выложить на сетевой диск в папку Z:\UltraRay\uRPC\Релизы\revealer и написать changelog к версии с важнейшими изменениями.
 

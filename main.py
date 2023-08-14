@@ -670,7 +670,7 @@ class Revealer2:
         self._notify_stop_flag = False
 
         # tk initial objects
-        self.root = Tk()
+        self.root = Tk(className="revealer")
 
         self.root.title("Revealer " + Version.full)
         self.root.columnconfigure(0, weight=1)
