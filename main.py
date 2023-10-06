@@ -414,10 +414,21 @@ class RevealerTable:
 
         return
 
+    def _set_row_color(self, row, additional_row, widget, subtract_legacy_header_row: bool):
+        subtruhend = self.legacy_header_row if subtract_legacy_header_row else 0
+        if (row + additional_row - subtruhend) % 2 == 0:
+            widget["background"] = self.EVEN_ROW_COLOR
+            if hasattr(widget, 'button'):
+                widget.button.change_button_color(self.EVEN_ROW_COLOR)
+        else:
+            widget["background"] = DEFAULT_BG_COLOR
+            if hasattr(widget, 'button'):
+                widget.button.change_button_color(DEFAULT_BG_COLOR)
+
     def move_table_rows(self, row_start, direction='down'):
         """
         Function moves every row of the main table to the next one since we need to sort our devices in the list.
-        Also we should update all rowa in the dictionary
+        Also we should update all rows in the dictionary
         :param row_start: int
            First row to move.
         :param direction: str
@@ -441,24 +452,9 @@ class RevealerTable:
                     if (self.legacy_last_row >= row > self.last_row or row <= self.last_row) and \
                             widget.tag != self.ADDITIONAL_HEADER_TAG and widget.tag != self.BLANK_LINE_TAG:
                         if (row + additional_row) > self.legacy_header_row:
-                            if (row + additional_row - self.legacy_header_row) % 2 == 0:
-                                widget["background"] = self.EVEN_ROW_COLOR
-                                if hasattr(widget, 'button'):
-                                    widget.button.change_button_color(self.EVEN_ROW_COLOR)
-                            else:
-                                widget["background"] = DEFAULT_BG_COLOR
-                                if hasattr(widget, 'button'):
-                                    widget.button.change_button_color(DEFAULT_BG_COLOR)
+                            self._set_row_color(row, additional_row, widget, True)
                         else:
-                            if (row + additional_row) % 2 == 0:
-                                widget["background"] = self.EVEN_ROW_COLOR
-                                if hasattr(widget, 'button'):
-                                    widget.button.change_button_color(self.EVEN_ROW_COLOR)
-                            else:
-                                widget["background"] = DEFAULT_BG_COLOR
-                                if hasattr(widget, 'button'):
-                                    widget.button.change_button_color(DEFAULT_BG_COLOR)
-
+                            self._set_row_color(row, additional_row, widget, False)
                     if widget.tag == self.ADDITIONAL_HEADER_TAG and col == 0:
                         self.legacy_header_row += additional_row
             except KeyError:
@@ -851,6 +847,19 @@ class Revealer2:
                 else:
                     print("Can't open this link.")
 
+    def _listen_and_capture_returned_responses_url(self, sock: socket.socket, devices):
+        try:
+            while True:
+                data, addr = sock.recvfrom(8192)
+                data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
+                # if we have not received this location before
+                if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
+                    devices.add(data_dict["ssdp_url"])
+                    threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
+        except socket.timeout:
+            self._notify_stop_flag = True
+            sock.close()
+
     def ssdp_search_task(self):
         # M-Search message body
         message = \
@@ -898,21 +907,7 @@ class Revealer2:
                     except OSError:
                         continue
 
-                    # listen and capture returned responses
-                    try:
-                        while True:
-                            data, addr = sock.recvfrom(8192)
-                            data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
-
-                            # if we have not received this location before
-                            if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
-                                devices.add(data_dict["ssdp_url"])
-
-                                threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
-
-                    except socket.timeout:
-                        self._notify_stop_flag = True
-                        sock.close()
+                    self._listen_and_capture_returned_responses_url(sock, devices)
 
             self.button["state"] = "normal"
             try:
@@ -1027,6 +1022,75 @@ class Revealer2:
         except socket.timeout:
             pass
 
+    def _parse_ssdp_header_server(self, string, ssdp_dict) -> None:
+        words_string = string.split(' ')
+        server_version = words_string[len(words_string) - 1]  # last word after ' '
+        server_version_words = server_version.split('/')
+        try:
+            ssdp_dict["server"] = server_version_words[0]
+        except IndexError:
+            ssdp_dict["server"] = "None"
+        try:
+            ssdp_dict["version"] = server_version_words[1]
+        except IndexError:
+            ssdp_dict["version"] = '-'
+
+    def _parse_ssdp_header_location(self, string, ssdp_dict, addr) -> None:
+        words_string = string.split(':')  # do this again for symmetry
+        if len(words_string) == 2:
+            # if in words_string we only have LOCATION and second element without any : in it
+            # this means we have invalid LOCATION URL -
+            # relative but UPnP standards require absolute URL.
+            # See https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf
+            # on pages 29 and 41 for LOCATION header format
+            #
+            # Nevertheless we are trying to get xml-file for this devices with address
+            if words_string[1][0] != \
+                    ' ':  # we should check if we have ' ' here and not take it to the location string
+                ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1]
+            else:
+                ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1][1::1]
+            print(ssdp_dict["location"], addr[0])
+            ssdp_dict["ssdp_url"] = addr[0]  # save only IP address
+        elif len(words_string) == 4:
+            # case with full absolute URL with port specified
+            # for example: http://172.16.130.67:80/Basic_info.xml
+            if words_string[1][0] != \
+                    ' ':  # we should check if we have ' ' here and not take it to the location string
+                ssdp_dict["location"] = words_string[1] + ':' + words_string[2] + ':' + words_string[3]
+            else:
+                ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' +\
+                                        words_string[3]
+            ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
+        elif len(words_string) == 3:
+            # case with absolute URL without port specified
+            # for example: http://172.16.130.67/Basic_info.xml
+            if words_string[1][0] != \
+                    ' ':  # we should check if we have ' ' here and not take it to the location string
+                ssdp_dict["location"] = words_string[1] + ':' + words_string[2]
+            else:
+                ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2]
+            url_parts = words_string[2].split("/")
+            # save only IP address (third in //172.16.130.67/Basic_info.xml splitted with '/')
+            if len(url_parts) >= 3:
+                ssdp_dict["ssdp_url"] = url_parts[2]
+            else:
+                ssdp_dict["ssdp_url"] = addr
+        else:
+            log.warning(f"We have location string from {addr} with URL with incorrect format:"
+                        f" {string}. We can not get its location and xml-file.")
+            ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
+
+    def _parse_ssdp_headeer_usn(self, string, ssdp_dict, addr) -> None:
+        words_string = string.split(':')  # do this again for symmetry
+        try:
+            ssdp_dict["uuid"] = words_string[2]
+        except IndexError:
+            except_info = traceback.format_exc()
+            self.print_i(f"USN of {addr} has incorrect format: {string}. It should be:\n"
+                         f"USN: uuid:00000000-0000-0000-0000-000000000000::<device-type>."
+                         f"\n{except_info}")
+
     def parse_ssdp_data(self, ssdp_data, addr):
         ssdp_dict = {"server": "", "version": "", "location": "", "ssdp_url": "", "uuid": ""}
         ssdp_strings = ssdp_data.split("\r\n")
@@ -1038,78 +1102,14 @@ class Revealer2:
 
                     if words_string[0].lower() \
                             == Revealer2.SSDP_HEADER_SERVER:  # format: SERVER: lwIP/1.4.1 UPnP/2.0 8SMC5-USB/4.7.7
-                        words_string = string.split(' ')
-                        server_version = words_string[len(words_string) - 1]  # last word after ' '
-                        server_version_words = server_version.split('/')
-                        try:
-                            ssdp_dict["server"] = server_version_words[0]
-                        except IndexError:
-                            ssdp_dict["server"] = "None"
-                        try:
-                            ssdp_dict["version"] = server_version_words[1]
-                        except IndexError:
-                            ssdp_dict["version"] = '-'
-
+                        self._parse_ssdp_header_server(string, ssdp_dict)
                     elif words_string[0].lower() == \
                             Revealer2.SSDP_HEADER_LOCATION:  # format: LOCATION: http://172.16.130.67:80/Basic_info.xml
-                        words_string = string.split(':')  # do this again for symmetry
-                        if len(words_string) == 2:
-                            # if in words_string we only have LOCATION and second element without any : in it
-                            # this means we have invalid LOCATION URL -
-                            # relative but UPnP standards require absolute URL.
-                            # See https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf
-                            # on pages 29 and 41 for LOCATION header format
-                            #
-                            # Nevertheless we are trying to get xml-file for this devices with address
-                            if words_string[1][0] != \
-                                    ' ':  # we should check if we have ' ' here and not take it to the location string
-                                ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1]
-                            else:
-                                ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1][1::1]
-                            print(ssdp_dict["location"], addr[0])
-                            ssdp_dict["ssdp_url"] = addr[0]  # save only IP address
-                        elif len(words_string) == 4:
-                            # case with full absolute URL with port specified
-                            # for example: http://172.16.130.67:80/Basic_info.xml
-                            if words_string[1][0] != \
-                                    ' ':  # we should check if we have ' ' here and not take it to the location string
-                                ssdp_dict["location"] = words_string[1] + ':' + words_string[2] + ':' + words_string[3]
-                            else:
-                                ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' +\
-                                                        words_string[3]
-                            ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
-
-                        elif len(words_string) == 3:
-                            # case with absolute URL without port specified
-                            # for example: http://172.16.130.67/Basic_info.xml
-                            if words_string[1][0] != \
-                                    ' ':  # we should check if we have ' ' here and not take it to the location string
-                                ssdp_dict["location"] = words_string[1] + ':' + words_string[2]
-                            else:
-                                ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2]
-
-                            url_parts = words_string[2].split("/")
-                            # save only IP address (third in //172.16.130.67/Basic_info.xml splitted with '/')
-                            if len(url_parts) >= 3:
-                                ssdp_dict["ssdp_url"] = url_parts[2]
-                            else:
-                                ssdp_dict["ssdp_url"] = addr
-                        else:
-                            log.warning(f"We have location string from {addr} with URL with incorrect format:"
-                                        f" {string}. We can not get its location and xml-file.")
-
-                            ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
-
+                        self._parse_ssdp_header_location(string, ssdp_dict, addr)
                     elif words_string[0].lower() == \
                             Revealer2.SSDP_HEADER_USN:
                         # USN: uuid:40001d0a-0000-0000-8e31-4010900b00c8::upnp:rootdevice
-                        words_string = string.split(':')  # do this again for symmetry
-                        try:
-                            ssdp_dict["uuid"] = words_string[2]
-                        except IndexError:
-                            except_info = traceback.format_exc()
-                            self.print_i(f"USN of {addr} has incorrect format: {string}. It should be:\n"
-                                      f"USN: uuid:00000000-0000-0000-0000-000000000000::<device-type>.\n{except_info}")
+                        self._parse_ssdp_headeer_usn(string, ssdp_dict, addr)
         except Exception:
             except_info = traceback.format_exc()
             self.print_i(f"Error in parsing {addr} SSDP data:\n{except_info}")
@@ -1150,6 +1150,100 @@ class Revealer2:
         thread_change = threading.Thread(target=lambda: self.change_ip_multicast_task(uuid, settings_dict))
         # start process for changing settings in another thread
         thread_change.start()
+
+    def _listen_and_capture_returned_responses_location(self, sock: socket.socket, devices, uuid) -> bool:
+        try:
+            while True:
+                data, addr = sock.recvfrom(8192)
+                data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
+
+                # if we have not received this location before
+                if not data_dict["location"] in devices and data_dict["uuid"] == uuid:
+                    devices.add(data_dict["location"])
+
+        except socket.timeout:
+            # try to get notify response from different network
+            try:
+                while True:
+                    data_notify, addr_notify = self.sock_notify.recvfrom(8192)
+                    data_strings = data_notify.decode('utf-8').split('\r\n')
+
+                    if data_strings[0] == 'NOTIFY * HTTP/1.1':
+
+                        data_notify_dict = self.parse_ssdp_data(data_notify.decode('utf-8'), addr_notify)
+
+                        if not data_notify_dict["location"] in devices and data_notify_dict["uuid"] == uuid:
+                            devices.add(data_notify_dict["location"])
+            except socket.timeout:
+                pass
+
+            sock.close()
+            if len(devices) > 0:
+                # We want to break
+                return True
+            pass
+        return False
+
+    def _show_change_settings_info(self, devices):
+        if len(devices) > 0:
+            mb.showinfo(
+                "Change settings...",
+                "Success.\nNew settings were applied.\nPlease update list of the devices "
+                "to find this device with the new IP address.",
+                parent=self.root
+            )
+        else:
+            mb.showerror(
+                "Change settings...",
+                "Error.\nSomething went wrong while setting new settings."
+                "\nPlease check inserted values and try again.",
+                parent=self.root
+            )
+
+    def _return_button_to_normal_state(self):
+        self.button["state"] = "normal"
+        try:
+            self.button["cursor"] = CURSOR_POINTER_MACOS
+        except TclError:
+            self.button["cursor"] = CURSOR_POINTER
+        self.button["text"] = "Search"
+        self.button.update()
+
+    def _change_ips_of_adapter(self, adapter, message, devices, uuid):
+        for ip in adapter.ips:
+            if not isinstance(ip.ip, str):
+                continue
+
+            if ip.ip == '127.0.0.1':
+                continue
+
+            # Send M-Search message to multicast address for UPNP
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            try:
+                sock.bind((ip.ip, 0))
+            except Exception:
+                continue
+
+            # try to listen to the notify too because if we are trying to change something in another network
+            multicast_group = '239.255.255.250'
+
+            try:
+                self.sock_notify.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
+                                            socket.inet_aton(multicast_group) + socket.inet_aton(ip.ip))
+            except OSError:
+                pass
+
+            self.sock_notify.settimeout(0.5)
+
+            sock.settimeout(1)
+            try:
+                sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
+            except OSError:
+                continue
+
+            _break = self._listen_and_capture_returned_responses_location(sock, devices, uuid)
+            if _break:
+                break
 
     def change_ip_multicast_task(self, uuid, settings_dict):
         """
@@ -1193,92 +1287,9 @@ class Revealer2:
             for adapter in adapters:
                 if len(devices) > 0:
                     break
-                for ip in adapter.ips:
-                    if not isinstance(ip.ip, str):
-                        continue
-
-                    if ip.ip == '127.0.0.1':
-                        continue
-
-                    # Send M-Search message to multicast address for UPNP
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-                    try:
-                        sock.bind((ip.ip, 0))
-                    except Exception:
-                        continue
-
-                    # try to listen to the notify too because if we are trying to change something in another network
-                    multicast_group = '239.255.255.250'
-
-                    try:
-                        self.sock_notify.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
-                                                    socket.inet_aton(multicast_group) + socket.inet_aton(ip.ip))
-                    except OSError:
-                        pass
-
-                    self.sock_notify.settimeout(0.5)
-
-                    sock.settimeout(1)
-                    try:
-                        sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
-                    except OSError:
-                        continue
-
-                    # listen and capture returned responses
-                    try:
-                        while True:
-                            data, addr = sock.recvfrom(8192)
-                            data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
-
-                            # if we have not received this location before
-                            if not data_dict["location"] in devices and data_dict["uuid"] == uuid:
-                                devices.add(data_dict["location"])
-
-                    except socket.timeout:
-                        # try to get notify response from different network
-                        try:
-                            while True:
-                                data_notify, addr_notify = self.sock_notify.recvfrom(8192)
-                                data_strings = data_notify.decode('utf-8').split('\r\n')
-
-                                if data_strings[0] == 'NOTIFY * HTTP/1.1':
-
-                                    data_notify_dict = self.parse_ssdp_data(data_notify.decode('utf-8'), addr_notify)
-
-                                    if not data_notify_dict["location"] in devices and data_notify_dict["uuid"] == uuid:
-                                        devices.add(data_notify_dict["location"])
-                        except socket.timeout:
-                            pass
-
-                        sock.close()
-                        if len(devices) > 0:
-                            break
-                        pass
-
-            # if we received an answer - we have not broken the device (at least)
-            # so delete it from the list
-            if len(devices) > 0:
-                mb.showinfo(
-                    "Change settings...",
-                    "Success.\nNew settings were applied.\nPlease update list of the devices "
-                    "to find this device with the new IP address.",
-                    parent=self.root
-                )
-
-            else:
-                mb.showerror(
-                    "Change settings...",
-                    "Error.\nSomething went wrong while setting new settings.\nPlease check inserted values and try again.",
-                    parent=self.root
-                )
-
-            self.button["state"] = "normal"
-            try:
-                self.button["cursor"] = CURSOR_POINTER_MACOS
-            except TclError:
-                self.button["cursor"] = CURSOR_POINTER
-            self.button["text"] = "Search"
-            self.button.update()
+                self._change_ips_of_adapter(adapter, message, devices, uuid)
+            self._show_change_settings_info(devices)
+            self._return_button_to_normal_state()
         except Exception:
             except_info = traceback.format_exc()
             self.print_i(f"Unhandled error while setting device network settings:\n{except_info}")
@@ -1315,6 +1326,31 @@ class Revealer2:
 
         except urllib.error.URLError:
             return title
+
+    def _listen_and_capture_returned_responses_old(self,
+                                                   sock: socket.socket,
+                                                   devices,
+                                                   ssdp_devices,
+                                                   ssdp_device_number) -> bool:
+        try:
+            while True:
+                data, addr = sock.recvfrom(8192)
+                if addr[0] not in devices and addr[0] not in ssdp_devices:
+                    devices.add(addr[0])
+
+                    title = addr[0]
+
+                    with self.main_table.lock:
+                        self.main_table.add_row_old_item(title, "http://" + addr[0], tag=self.TAG_OLD_LOCAL)
+
+                    ssdp_device_number += 1
+
+        except socket.timeout:
+            sock.close()
+            if len(devices) > 0:
+                return True
+            pass
+        return False
 
     def old_search(self, ssdp_devices, device_number):
         """
@@ -1359,25 +1395,12 @@ class Revealer2:
                         continue
 
                     # listen and capture returned responses
-                    try:
-                        while True:
-                            data, addr = sock.recvfrom(8192)
-                            if addr[0] not in devices and addr[0] not in ssdp_devices:
-                                devices.add(addr[0])
-
-                                title = addr[0]
-
-                                with self.main_table.lock:
-                                    self.main_table.add_row_old_item(title, "http://" + addr[0], tag=self.TAG_OLD_LOCAL)
-
-                                ssdp_device_number += 1
-
-                    except socket.timeout:
-                        sock.close()
-                        if len(devices) > 0:
-                            break
-                        pass
-
+                    _break = self._listen_and_capture_returned_responses_old(sock,
+                                                                             devices,
+                                                                             ssdp_devices,
+                                                                             ssdp_device_number)
+                    if _break:
+                        break
             return devices
         except Exception:
             except_info = traceback.format_exc()
@@ -1626,6 +1649,27 @@ class MIPASDialog(sd.Dialog):
             self.entry_mask['state'] = 'normal'
             self.entry_gateway['state'] = 'normal'
 
+    def _validate_net_format(self, result_ip: dict[str, ]) -> str:
+        warning_msg = ""
+        if self.check_format(result_ip['ip'], self.IP_ADDRESS_RE):
+            if len(warning_msg) > 0:
+                warning_msg += "\n\n"
+            warning_msg += "IP Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
+                           " number from 0 to 255." \
+                           "\nExample: 192.168.1.1."
+        if self.check_format(result_ip['netmask'], self.NET_MASK_RE):
+            if len(warning_msg) > 0:
+                warning_msg += "\n\n"
+            warning_msg += "\nNetwork Mask format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
+                           " number from 0 to 255.\nExample: 255.255.0.0."
+        if result_ip['gateway'] != '' and self.check_format(result_ip['gateway'], self.IP_ADDRESS_RE):
+            if len(warning_msg) > 0:
+                warning_msg += "\n\n"
+            warning_msg += "Gateway Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
+                           " number from 0 to 255." \
+                           "\nExample: 192.168.1.1."
+        return warning_msg
+
     def validate(self):
         try:
             result_ip = self.getresult()
@@ -1655,29 +1699,7 @@ class MIPASDialog(sd.Dialog):
             return 0
 
         elif result_ip['dhcp'] == 0:
-
-            warning_msg = ""
-
-            if self.check_format(result_ip['ip'], self.IP_ADDRESS_RE):
-                if len(warning_msg) > 0:
-                    warning_msg += "\n\n"
-                warning_msg += "IP Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
-                               " number from 0 to 255." \
-                               "\nExample: 192.168.1.1."
-
-            if self.check_format(result_ip['netmask'], self.NET_MASK_RE):
-                if len(warning_msg) > 0:
-                    warning_msg += "\n\n"
-                warning_msg += "\nNetwork Mask format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
-                               " number from 0 to 255.\nExample: 255.255.0.0."
-
-            if result_ip['gateway'] != '' and self.check_format(result_ip['gateway'], self.IP_ADDRESS_RE):
-                if len(warning_msg) > 0:
-                    warning_msg += "\n\n"
-                warning_msg += "Gateway Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
-                               " number from 0 to 255." \
-                               "\nExample: 192.168.1.1."
-
+            warning_msg = self._validate_net_format(result_ip)
             if len(warning_msg) > 0:
                 mb.showwarning("Warning", warning_msg, parent=self)
                 return 0
