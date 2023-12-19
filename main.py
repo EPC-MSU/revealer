@@ -19,6 +19,7 @@ import urllib.request
 
 import ast
 import threading
+from thread import ProcessThread
 import traceback
 
 from version import Version
@@ -722,8 +723,33 @@ class Revealer2:
 
         self.info = ""
 
+        self._update_table_thread = ProcessThread()
+        self._update_table_thread.start()
+
+        self._ssdp_search_thread = ProcessThread()
+        self._ssdp_search_thread.start()
+
+        self._old_search_thread = ProcessThread()
+        self._old_search_thread.start()
+
+        self._notify_search_thread = ProcessThread()
+        self._notify_search_thread.start()
+
+        self._destroy_flag = False
+
     def __del__(self):
         self.sock_notify.close()
+
+    def on_closing(self):
+        if mb.askokcancel("Quit", "Do you want to quit?"):
+            # self._destroy_flag = True
+            # close all threads first
+            self._update_table_thread.stop_thread()
+            self._ssdp_search_thread.stop_thread()
+            self._old_search_thread.stop_thread()
+            self._notify_search_thread.stop_thread()
+            # and only after this - kill the app
+            self.root.destroy()
 
     def print_i(self, string):
         if len(self.info) > 0:
@@ -746,11 +772,14 @@ class Revealer2:
 
         self.info = ""
 
-        search_thread = threading.Thread(target=self.ssdp_search_task)
-        old_search_thread = threading.Thread(target=self.old_search_task)
+        # search_thread = threading.Thread(target=self.ssdp_search_task)
+        # old_search_thread = threading.Thread(target=self.old_search_task)
 
-        search_thread.start()
-        old_search_thread.start()
+        # search_thread.start()
+        # old_search_thread.start()
+
+        self._ssdp_search_thread.add_task(self.ssdp_search_task)
+        self._old_search_thread.add_task(self.old_search_task)
 
     def find_ssdp_enhanced_device(self, device_name):
         index = 0
@@ -855,7 +884,8 @@ class Revealer2:
                 # if we have not received this location before
                 if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
                     devices.add(data_dict["ssdp_url"])
-                    threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
+                    # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
+                    self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr)
         except socket.timeout:
             self._notify_stop_flag = True
             sock.close()
@@ -871,11 +901,11 @@ class Revealer2:
             '\r\n'
 
         try:
-
-            self.button["state"] = "disabled"
-            self.button["text"] = "Searching..."
-            self.button["cursor"] = ""
-            self.button.update()
+            if not self._destroy_flag:
+                self.button["state"] = "disabled"
+                self.button["text"] = "Searching..."
+                self.button["cursor"] = ""
+                self.button.update()
 
             devices = set()
 
@@ -897,8 +927,9 @@ class Revealer2:
                         continue
 
                     # if ip.ip is suitable for m-search - try to listen for notify messages also
-                    notify_listen_thread = threading.Thread(target=self.listen_notify_task, args=[ip.ip])
-                    notify_listen_thread.start()
+                    # notify_listen_thread = threading.Thread(target=self.listen_notify_task, args=[ip.ip])
+                    # notify_listen_thread.start()
+                    self._notify_search_thread.add_task(self.listen_notify_task, ip.ip)
 
                     # set timeout
                     sock.settimeout(1)
@@ -909,19 +940,21 @@ class Revealer2:
 
                     self._listen_and_capture_returned_responses_url(sock, devices)
 
-            self.button["state"] = "normal"
-            try:
-                self.button["cursor"] = CURSOR_POINTER_MACOS
-            except TclError:
-                self.button["cursor"] = CURSOR_POINTER
-            self.button["text"] = "Search"
-            self.button.update()
+            if not self._destroy_flag:
+                self.button["state"] = "normal"
+                try:
+                    self.button["cursor"] = CURSOR_POINTER_MACOS
+                except TclError:
+                    self.button["cursor"] = CURSOR_POINTER
+                self.button["text"] = "Search"
+                self.button.update()
         except Exception:
             except_info = traceback.format_exc()
             self.print_i(f"Unhandled exception occurred while performing SSDP search:\n{except_info}")
 
         # show info from search if we had some important information (exceptions with errors)
-        self.show_info()
+        if not self._destroy_flag:
+            self.show_info()
 
         return
 
@@ -964,24 +997,30 @@ class Revealer2:
 
             if xml_dict is not None:
                 # check that we have our url with correct format
-                if xml_dict["presentationURL"][0:4] != "http":
-                    link = "http://" + addr[0] + xml_dict["presentationURL"]
-                else:
-                    link = xml_dict["presentationURL"]
+                try:
+                    if xml_dict["presentationURL"][0:4] != "http":
+                        link = "http://" + addr[0] + xml_dict["presentationURL"]
+                    else:
+                        link = xml_dict["presentationURL"]
+                except KeyError:
+                    xml_dict["presentationURL"] = "None"
+                    link = "http://" + addr[0]
 
                 xml_dict["version"] = data_dict["version"]
 
-                with self.main_table.lock:
-                    self.main_table.move_table_rows(self.main_table.last_row)
-                    self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
-                                                      link, data_dict["ssdp_url"], uuid, xml_dict,
-                                                      tag=self.TAG_LOCAL)
+                if not self._destroy_flag:
+                    with self.main_table.lock:
+                        self.main_table.move_table_rows(self.main_table.last_row)
+                        self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
+                                                          link, data_dict["ssdp_url"], uuid, xml_dict,
+                                                          tag=self.TAG_LOCAL)
             else:
-                with self.main_table.lock:
-                    self.main_table.move_table_rows(self.main_table.last_row)
-                    self.main_table.add_row_ssdp_item(data_dict["server"],
-                                                      data_dict["ssdp_url"], data_dict["ssdp_url"],
-                                                      uuid, data_dict, tag=self.TAG_NOT_LOCAL)
+                if not self._destroy_flag:
+                    with self.main_table.lock:
+                        self.main_table.move_table_rows(self.main_table.last_row)
+                        self.main_table.add_row_ssdp_item(data_dict["server"],
+                                                          data_dict["ssdp_url"], data_dict["ssdp_url"],
+                                                          uuid, data_dict, tag=self.TAG_NOT_LOCAL)
         except Exception:
             except_info = traceback.format_exc()
             self.print_i(f"Error while trying to add new device {addr} with data_dict {data_dict} to the table:\n"
@@ -1017,7 +1056,8 @@ class Revealer2:
                 if data_strings[0] == 'NOTIFY * HTTP/1.1':
                     data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
 
-                    threading.Thread(target=self.add_new_item_task, args=[data_dict, addr, True]).start()
+                    # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr, True]).start()
+                    self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr, True)
 
         except socket.timeout:
             pass
@@ -1076,6 +1116,39 @@ class Revealer2:
                 ssdp_dict["ssdp_url"] = url_parts[2]
             else:
                 ssdp_dict["ssdp_url"] = addr
+        elif len(words_string) > 4:
+
+            # check that it is absolute address:
+            try:
+                http_index = words_string[1].index('http')
+            except ValueError:
+                http_index = -1
+                log.warning(f"We have location string from {addr} with URL with incorrect format:"
+                            f" {string}. We can not get its location and xml-file.")
+                ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
+
+            log.warning(f"We found device http_index = {http_index} with long LOCATION: {words_string}")
+
+            if http_index >= 0:
+                if words_string[1][0] != \
+                        ' ':  # we should check if we have ' ' here and not take it to the location string
+                    ssdp_dict["location"] = words_string[1]
+
+                    for i in range(len(words_string)-2):
+                        ssdp_dict["location"] += ':' + words_string[i+2]
+                else:
+                    ssdp_dict["location"] = words_string[1][1::1]
+                    for i in range(len(words_string)-2):
+                        ssdp_dict["location"] += ':' + words_string[i+2]
+                url_parts = ssdp_dict["location"].split("/")
+                # save only IP address (third in //172.16.130.67/Basic_info.xml splitted with '/')
+                if len(url_parts) >= 3:
+                    ssdp_dict["ssdp_url"] = url_parts[2].split(':')[0]
+                else:
+                    ssdp_dict["ssdp_url"] = addr
+
+                log.warning(f"We found device with long LOCATION: {ssdp_dict['location']}. "
+                            f"And got its URL: {ssdp_dict['ssdp_url']}")
         else:
             log.warning(f"We have location string from {addr} with URL with incorrect format:"
                         f" {string}. We can not get its location and xml-file.")
@@ -1147,9 +1220,11 @@ class Revealer2:
         # delete any info from pevious processe
         self.info = ""
 
-        thread_change = threading.Thread(target=lambda: self.change_ip_multicast_task(uuid, settings_dict))
+        # thread_change = threading.Thread(target=lambda: self.change_ip_multicast_task(uuid, settings_dict))
         # start process for changing settings in another thread
-        thread_change.start()
+        # thread_change.start()
+        # TODO: maybe we need different proccess thread for this changing
+        self._ssdp_search_thread.add_task(self.change_ip_multicast_task, uuid, settings_dict)
 
     def _listen_and_capture_returned_responses_location(self, sock: socket.socket, devices, uuid) -> bool:
         try:
@@ -1649,7 +1724,7 @@ class MIPASDialog(sd.Dialog):
             self.entry_mask['state'] = 'normal'
             self.entry_gateway['state'] = 'normal'
 
-    def _validate_net_format(self, result_ip: dict[str, ]) -> str:
+    def _validate_net_format(self, result_ip: dict) -> str:
         warning_msg = ""
         if self.check_format(result_ip['ip'], self.IP_ADDRESS_RE):
             if len(warning_msg) > 0:
@@ -1856,4 +1931,5 @@ if __name__ == '__main__':
     print("Start Revealer 2... Version " + Version.full + ".")
 
     app = Revealer2()
+    app.root.protocol("WM_DELETE_WINDOW", app.on_closing)
     app.root.mainloop()
