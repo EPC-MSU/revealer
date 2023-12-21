@@ -153,7 +153,12 @@ class Revealer2:
 
         self._destroy_flag = threading.Event()
         self._in_process = threading.Event()
-        self._in_process_after = threading.Event()  # thread safe event to indicate that we need to update main table one time after search is ended
+        # thread safe event to indicate that we need to update main table one time after search is ended
+        self._in_process_after = threading.Event()
+
+        self._changing_settings = threading.Event()
+        self.buttons_state_changed = False
+        self.table_buttons_state_changed = False
 
     def __del__(self):
         self.sock_notify.close()
@@ -169,6 +174,8 @@ class Revealer2:
         self.update_buttons()
         # update table
         self.update_main_table()
+        # update table buttons after
+        self.update_table_buttons()
         # reschedule
         self.root.after(self.UPDATE_TIME_MS, self.update_window)
 
@@ -196,7 +203,14 @@ class Revealer2:
             self.button["text"] = "Searching..."
             self.button["cursor"] = ""
             self.button.update()
-        else:
+            self.buttons_state_changed = True
+        elif self._changing_settings.is_set():
+            self.button["state"] = "disabled"
+            self.button["text"] = "Search"
+            self.button["cursor"] = ""
+            self.button.update()
+            self.buttons_state_changed = True
+        elif self.buttons_state_changed:
             self.button["state"] = "normal"
             try:
                 self.button["cursor"] = CURSOR_POINTER_MACOS
@@ -204,6 +218,17 @@ class Revealer2:
                 self.button["cursor"] = CURSOR_POINTER
             self.button["text"] = "Search"
             self.button.update()
+            self.buttons_state_changed = False
+
+    def update_table_buttons(self):
+        if self._in_process.is_set():
+            self.table_buttons_state_changed = True
+        elif self._changing_settings.is_set():
+            self.table_buttons_state_changed = True
+            self.main_table.disable_all_buttons()
+        elif self.table_buttons_state_changed:
+            self.table_buttons_state_changed = False
+            self.main_table.enable_all_buttons()
 
     def on_closing(self):
         if mb.askokcancel("Quit", "Do you want to quit?"):
@@ -756,15 +781,6 @@ class Revealer2:
                 parent=self.root
             )
 
-    def _return_button_to_normal_state(self):
-        self.button["state"] = "normal"
-        try:
-            self.button["cursor"] = CURSOR_POINTER_MACOS
-        except TclError:
-            self.button["cursor"] = CURSOR_POINTER
-        self.button["text"] = "Search"
-        self.button.update()
-
     def _change_ips_of_adapter(self, adapter, message, devices, uuid):
         for ip in adapter.ips:
             if not isinstance(ip.ip, str):
@@ -831,10 +847,7 @@ class Revealer2:
                                          '\r\n'
 
         try:
-            self.button["state"] = "disabled"
-            self.button["cursor"] = ""
-            self.button["text"] = "Search"
-            self.button.update()
+            self._changing_settings.set()
 
             devices = set()
 
@@ -845,7 +858,8 @@ class Revealer2:
                     break
                 self._change_ips_of_adapter(adapter, message, devices, uuid)
             self._show_change_settings_info(devices)
-            self._return_button_to_normal_state()
+
+            self._changing_settings.clear()
         except Exception:
             except_info = traceback.format_exc()
             self.print_i(f"Unhandled error while setting device network settings:\n{except_info}")
@@ -1053,6 +1067,8 @@ class MIPASDialog(sd.Dialog):
 
     def body(self, master):
 
+        # self.minsize(width=300, height=200)
+
         device_frame = Frame(master)
         device_frame.grid(row=0, column=0, sticky='news')
 
@@ -1119,6 +1135,12 @@ class MIPASDialog(sd.Dialog):
         self.entry_gateway.bind("<FocusIn>", self.entry_click)
         self.entry_gateway.bind("<FocusOut>", self.entry_leave)
         self.entry_gateway.default = True
+
+        self.update()
+        self.update_idletasks()
+
+        self.minsize(width=max(device_frame.winfo_width(), frame.winfo_width())+10,
+                     height=(device_frame.winfo_height() + frame.winfo_height() + 100))
 
         return self.entry_password
 
@@ -1287,6 +1309,12 @@ class PropDialog(sd.Dialog):
                     pass
 
         self.bind("<Button-1>", self.open_link)
+
+        self.update()
+        self.update_idletasks()
+
+        self.minsize(width=self.winfo_width()*2,
+                     height=self.winfo_height()+75)
 
         return self
 

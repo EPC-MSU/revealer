@@ -115,7 +115,7 @@ class RevealerDeviceList:
             row = self.add_device_to_ssdp_dict(device_row)
             if row is not None:
                 device_row.set_row(row=row)
-                log.warning(f"Add ssdp device {device_row.name} to row {row}")
+                log.debug(f"Add ssdp device {device_row.name} to row {row}")
                 self._ssdp_devices.insert(row-1, device_row)
 
         else:

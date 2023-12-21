@@ -233,6 +233,32 @@ class RevealerTable:
 
         return new_table
 
+    def disable_all_buttons(self):
+        """
+        Method for disabling all buttons in the table while settings changing or searching.
+
+        :return:
+        """
+
+        for i in self.main_table.winfo_children():
+            if hasattr(i, 'button_flag'):
+                # destroy all children which is not header
+                if i.button_flag:
+                    i.button.disable()
+
+    def enable_all_buttons(self):
+        """
+        Method for disabling all buttons in the table while settings changing or searching.
+
+        :return:
+        """
+
+        for i in self.main_table.winfo_children():
+            if hasattr(i, 'button_flag'):
+                # destroy all children which is not header
+                if i.button_flag:
+                    i.button.enable()
+
     def update(self):
         """
         Update table according to current state of the list
@@ -554,103 +580,6 @@ class RevealerTable:
         self.device_list.add_device(name=name, link=link, ip_address=ip_address, uuid=uuid, other_data=other_data,
                                     tag=tag, device_type=type, legacy=False)
 
-        # after this there are old func
-
-        """try:
-            presence_whole = self.ip_dict_whole[ip_address]
-            log.debug(presence_whole)
-            return
-        except KeyError:
-            self.ip_dict_whole[ip_address] = name
-
-        try:
-            presence = self.ssdp_dict[name + link]
-            log.debug(presence)
-            return
-        except KeyError:
-            alpha_row = self.add_device_to_ssdp_dict(name + link, type, self.last_row)
-            # self.ssdp_dict[name+link] = {'type': type, 'row': self.last_row}
-
-        # sorted_list = sorted(self.ssdp_dict)
-
-        # alpha_row = sorted_list.index(name+link) + 1
-        self.ssdp_dict[name + link]['row'] = alpha_row
-
-        if alpha_row < self.last_row:
-            self.move_table_rows(alpha_row)
-
-        # find correct color
-        if alpha_row % 2 == 0:
-            bg_color = self.EVEN_ROW_COLOR
-        else:
-            bg_color = DEFAULT_BG_COLOR
-
-        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
-        middle.grid(row=alpha_row, column=1, sticky='news')
-        middle.tag = tag
-
-        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
-        middle.grid(row=alpha_row, column=3, sticky='news')
-        middle.tag = tag
-
-        font_weight = 'bold'
-
-        if uuid is None:
-            font_weight = ''
-
-        if tag != "not_local":
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
-            link_l = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor=self.pointer_cursor,
-                           fg="blue", font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
-        else:
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
-            link_l = Label(self.main_table, text=link, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
-
-        link_l.grid(row=alpha_row, column=2, sticky="ew")
-        device.grid(row=alpha_row, column=0, sticky="ew")
-
-        device.tag = tag
-        link_l.tag = tag
-
-        device.link = link_l['text']
-        link_l.link = link_l['text']
-
-        device.uuid = uuid
-        device.other_data = other_data
-
-        link_l.uuid = uuid
-        link_l.other_data = other_data
-
-        # add settings button
-        if uuid is None:
-            ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(name, uuid, link_l['text']),
-                           command_view=lambda: self.properties_view_func(other_data, link_l['text']),
-                           bg_color=bg_color, width=1, tag=tag, type=RevealerDeviceType.OTHER)
-        elif uuid != "":
-            ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(name, uuid, link_l['text']),
-                           command_view=lambda: self.properties_view_func(other_data, link_l['text']),
-                           bg_color=bg_color, width=1, tag=tag, type=RevealerDeviceType.OUR)
-        else:
-            ButtonSettings(self.main_table, col=4, row=alpha_row,
-                           command_change=lambda: self.settings_func(name, uuid, link_l['text']),
-                           command_view=lambda: self.properties_view_func(other_data, link_l['text']),
-                           bg_color=bg_color, width=1, tag=tag, state="disabled", type=RevealerDeviceType.OUR)
-
-        # bind double left click and right click
-        # bind left-click to 'open_link'
-        link_l.bind("<Button-1>", self.left_click_func)
-
-        # bind right-click to 'change_ip'
-        link_l.bind("<Button-3>", self.right_click_func)
-        device.bind("<Button-3>", self.right_click_func)
-
-        self.last_row += 1"""
-
         return
 
     def _set_row_color(self, row, additional_row, widget, subtract_legacy_header_row: bool):
@@ -663,50 +592,6 @@ class RevealerTable:
             widget["background"] = DEFAULT_BG_COLOR
             if hasattr(widget, 'button'):
                 widget.button.change_button_color(DEFAULT_BG_COLOR)
-
-    def move_table_rows(self, row_start, direction='down'):
-        """
-        Function moves every row of the main table to the next one since we need to sort our devices in the list.
-        Also we should update all rows in the dictionary
-        :param row_start: int
-           First row to move.
-        :param direction: str
-           Direction of the movement of the rows. Can be 'up' or 'down'.
-        :return:
-        """
-
-        additional_row = 1
-
-        if direction == 'down':
-            additional_row = 1
-        elif direction == 'up':
-            additional_row = -1
-
-        for widget in self.main_table.winfo_children():
-            try:
-                row = widget.grid_info()['row']
-                col = widget.grid_info()['column']
-                if row >= row_start:
-                    widget.grid(column=col, row=row + additional_row)
-                    if (self.legacy_last_row >= row > self.last_row or row <= self.last_row) and \
-                            widget.tag != self.ADDITIONAL_HEADER_TAG and widget.tag != self.BLANK_LINE_TAG:
-                        if (row + additional_row) > self.legacy_header_row:
-                            self._set_row_color(row, additional_row, widget, True)
-                        else:
-                            self._set_row_color(row, additional_row, widget, False)
-                    if widget.tag == self.ADDITIONAL_HEADER_TAG and col == 0:
-                        self.legacy_header_row += additional_row
-            except KeyError:
-                pass
-
-        # update all dictionaries
-        """for name in self.ssdp_dict:
-            if self.ssdp_dict[name]['row'] >= row_start:
-                self.ssdp_dict[name]['row'] += additional_row
-
-        for name in self.legacy_dict:
-            if self.legacy_dict[name] >= row_start:
-                self.legacy_dict[name] += additional_row"""
 
     def add_row_old_item(self, name, link, tag):
 
@@ -721,152 +606,7 @@ class RevealerTable:
             legacy=True
         )
 
-        # after this we have old code
-
-        """try:
-            presence_whole = self.ip_dict_whole[link]
-            log.debug(presence_whole)
-            return
-        except KeyError:
-            self.ip_dict_whole[link] = name
-
-        # check if we have at least one old device in the list
-        if not self.legacy_last_row:
-            self.legacy_last_row = self.last_row + 1
-
-            # add two blank lines
-            blank = Label(self.main_table, text="", anchor="w", background=DEFAULT_BG_COLOR)
-            blank.grid(row=self.legacy_last_row, column=0, sticky="ew")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Frame(self.main_table, takefocus=0, background=DEFAULT_BG_COLOR, width=2)
-            blank.grid(row=self.legacy_last_row, column=1, sticky="news")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Label(self.main_table, text="", anchor="w", background=DEFAULT_BG_COLOR)
-            blank.grid(row=self.legacy_last_row, column=2, sticky="ew")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Frame(self.main_table, takefocus=0, background=DEFAULT_BG_COLOR, width=2)
-            blank.grid(row=self.legacy_last_row, column=3, sticky="news")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Frame(self.main_table, takefocus=0, background=DEFAULT_BG_COLOR, width=2)
-            blank.grid(row=self.legacy_last_row, column=4, sticky="news")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Label(self.main_table, text="", anchor="w", background=DEFAULT_BG_COLOR)
-            blank.grid(row=self.legacy_last_row + 1, column=0, sticky="ew")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Frame(self.main_table, takefocus=0, background=DEFAULT_BG_COLOR, width=2)
-            blank.grid(row=self.legacy_last_row + 1, column=1, sticky="news")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Label(self.main_table, text="", anchor="w", background=DEFAULT_BG_COLOR)
-            blank.grid(row=self.legacy_last_row + 1, column=2, sticky="ew")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Frame(self.main_table, takefocus=0, background=DEFAULT_BG_COLOR, width=2)
-            blank.grid(row=self.legacy_last_row + 1, column=3, sticky="news")
-            blank.tag = self.BLANK_LINE_TAG
-
-            blank = Frame(self.main_table, takefocus=0, background=DEFAULT_BG_COLOR, width=2)
-            blank.grid(row=self.legacy_last_row + 1, column=4, sticky="news")
-            blank.tag = self.BLANK_LINE_TAG
-
-            # add additional header line
-            self.legacy_header_row = self.legacy_last_row + 2
-
-            # add headers
-            header_1 = Label(self.main_table, text="Legacy Protocol Devices", anchor="center", fg=DEFAULT_TEXT_COLOR,
-                             background=self.HEADER_COLOR)
-            header_1.grid(row=self.legacy_header_row, column=0, sticky="ew")
-            header_1.tag = self.ADDITIONAL_HEADER_TAG
-
-            header_2 = ttk.Separator(self.main_table, takefocus=0, orient=VERTICAL)
-            header_2.grid(row=self.legacy_header_row, column=1, sticky="ns")
-            header_2.tag = self.ADDITIONAL_HEADER_TAG
-
-            header_3 = Label(self.main_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0,
-                             fg=DEFAULT_TEXT_COLOR)
-            header_3.grid(row=self.legacy_header_row, column=2, sticky="ew")
-            header_3.tag = self.ADDITIONAL_HEADER_TAG
-
-            header_4 = ttk.Separator(self.main_table, takefocus=0, orient=VERTICAL)
-            header_4.grid(row=self.legacy_header_row, column=3, sticky="ns")
-            header_4.tag = self.ADDITIONAL_HEADER_TAG
-
-            blank = Frame(self.main_table, takefocus=0, background=self.HEADER_COLOR, width=2)
-            blank.grid(row=self.legacy_header_row, column=4, sticky="news")
-            blank.tag = self.BLANK_LINE_TAG
-
-            self.legacy_last_row += 4
-
-        # we need to sort alphabetically at every moment
-        # so... ignore the new row i guess
-        self.legacy_dict[name] = self.legacy_last_row
-
-        sorted_list = sorted(self.legacy_dict)
-
-        alpha_row = sorted_list.index(name) + 1 + self.legacy_header_row
-
-        if alpha_row < self.legacy_last_row:
-            self.move_table_rows(alpha_row)
-
-        if (alpha_row - self.legacy_header_row) % 2 == 0:
-            bg_color = self.EVEN_ROW_COLOR
-        else:
-            bg_color = DEFAULT_BG_COLOR
-
-        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
-        middle.grid(row=alpha_row, column=1, sticky="news")
-        middle.tag = tag
-
-        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
-        middle.grid(row=alpha_row, column=3, sticky="news")
-        middle.tag = tag
-
-        if tag != "not_local":
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color, cursor=self.pointer_cursor,
-                         fg="blue", font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
-        else:
-            device = Label(self.main_table, text=name, anchor="w", background=bg_color)
-            link = Label(self.main_table, text=link, anchor="w", background=bg_color, fg=DEFAULT_TEXT_COLOR,
-                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
-
-        link.grid(row=alpha_row, column=2, sticky="ew")
-        device.grid(row=alpha_row, column=0, sticky="ew")
-
-        device.tag = tag
-        link.tag = tag
-
-        device.link = link['text']
-        link.link = link['text']
-
-        blank_settings = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
-        blank_settings.grid(row=alpha_row, column=4, sticky='news')
-        blank_settings.tag = tag
-
-        # bind left-click to 'open_link'
-        link.bind("<Button-1>", self.left_click_func)
-
-        self.legacy_last_row += 1"""
-
         return
-
-    def delete_table_row(self, del_row):
-        for widget in self.main_table.winfo_children():
-            try:
-                row = widget.grid_info()['row']
-                if row == del_row:
-                    widget.destroy()
-            except KeyError:
-                pass
-
-        self.move_table_rows(del_row + 1, direction='up')
 
 
 class ButtonSettings:
@@ -897,9 +637,13 @@ class ButtonSettings:
 
         if state == "normal":
             cursor = self.pointer_cursor
+            # flag for indication if this button should be enabled for working after search is finished
+            frame.button_flag = True
         else:
             cursor = "question_arrow"
             text_settings += "\n\nChange of the network settings in this firmware version is unavailable"
+            # flag for indication if this button should not be enabled for working after search is finished
+            frame.button_flag = False
 
         if type == RevealerDeviceType.OUR:
             button = Button(frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor,
@@ -940,6 +684,20 @@ class ButtonSettings:
 
         self._button_view = button
 
+    def disable(self):
+        """
+        Disable button.
+        :return:
+        """
+        if self._button_change is not None:
+            self._button_change["state"] = "disabled"
+            self._button_change.update()
+
+    def enable(self):
+        if self._button_change is not None:
+            self._button_change["state"] = "normal"
+            self._button_change.update()
+
     def change_button_color(self, color):
         if self._button_change is not None:
             self._button_change.configure(bg=color, highlightbackground=color)
@@ -956,4 +714,3 @@ class ButtonSettings:
     def _on_leave(self, event):
         if event.widget["state"] != "disabled":
             event.widget.configure(bg=event.widget.bg_default, highlightbackground=event.widget.bg_default)
-
