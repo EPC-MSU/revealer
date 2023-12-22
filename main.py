@@ -1050,7 +1050,11 @@ class MIPASDialog(sd.Dialog):
         if entry_widget.default:
             entry_widget.default = False
             entry_widget.delete(0, 'end')
-            entry_widget.configure(fg=self.text_color)
+            # try to change color for macos
+            try:
+                entry_widget.configure(fg=self.text_color)
+            except TclError:
+                pass
 
     def entry_leave(self, event):
         entry_widget = event.widget
@@ -1097,8 +1101,13 @@ class MIPASDialog(sd.Dialog):
         # blank row
         Label(master, text="", justify=LEFT).grid(column=0, row=3, padx=5, sticky='w')
 
-        frame = LabelFrame(master, text="Network settings", fg=self.text_color,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+        # try to change foreground color for macos
+        try:
+            frame = LabelFrame(master, text="Network settings", fg=self.text_color,
+                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+        except TclError:
+            frame = LabelFrame(master, text="Network settings",
+                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
 
         frame.grid(row=2, column=0, sticky='ns')
 
