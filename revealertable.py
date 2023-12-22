@@ -160,7 +160,7 @@ class RevealerTable:
     lock = threading.Lock()
 
     def __init__(self, master, col, row, height, left_click_url_func=None, right_click_func=None, settings_func=None,
-                 properties_view_func=None):
+                 properties_view_func=None, os_main_root=None):
         self.great_table = None
 
         self.main_table = self.create_table(master, col, row, height)
@@ -180,6 +180,12 @@ class RevealerTable:
         self.legacy_header_row = 0
 
         self.device_list = RevealerDeviceList()
+
+        # save path root to the main.py if it is provided - if no: just save path to this file
+        if os_main_root is not None:
+            self.os_main_root = os_main_root
+        else:
+            self.os_main_root = os.path.dirname(__file__)
 
         # try to use mac os specific cursor - if exception is raised we are not on mac os and should use default
         self.pointer_cursor = CURSOR_POINTER_MACOS
@@ -359,19 +365,19 @@ class RevealerTable:
 
         # add settings button
         if device_info['uuid'] is None:
-            ButtonSettings(self.main_table, col=4, row=alpha_row,
+            ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
                            command_change=lambda:
                            self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
                            command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
                            bg_color=bg_color, width=1, tag=device_info['tag'], type=RevealerDeviceType.OTHER)
         elif device_info['uuid'] != "":
-            ButtonSettings(self.main_table, col=4, row=alpha_row,
+            ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
                            command_change=lambda:
                            self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
                            command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
                            bg_color=bg_color, width=1, tag=device_info['tag'], type=RevealerDeviceType.OUR)
         else:
-            ButtonSettings(self.main_table, col=4, row=alpha_row,
+            ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
                            command_change=lambda:
                            self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
                            command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
@@ -614,7 +620,8 @@ class ButtonSettings:
     TOOLTIP_BG_COLOR = DEFAULT_BG_COLOR
     TOOLTIP_TIMEOUT = 0.75
 
-    def __init__(self, master, col, row, command_change, command_view, bg_color=DEFAULT_BG_COLOR, width=21,
+    def __init__(self, master, col, row, command_change, command_view, os_main_root,
+                 bg_color=DEFAULT_BG_COLOR, width=21,
                  tag=RevealerDeviceTag.LOCAL, state="normal", type=RevealerDeviceType.OUR):
         frame = Frame(master, background=bg_color, width=width, height=10)
         frame.grid(column=col, row=row, sticky='news')
@@ -623,7 +630,11 @@ class ButtonSettings:
 
         frame.button = self
 
-        photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/settings2.png'))
+        # os.path.dirname(__file__) to the main.py file
+        # it is important to use this specific file path for correct mac os app bundle working
+        self.os_main_root = os_main_root
+
+        photo = PhotoImage(file=os.path.join(self.os_main_root, 'resources/settings2.png'))
 
         text_settings = "Change network settings..."
 
@@ -664,7 +675,7 @@ class ButtonSettings:
         else:
             self._button_change = None
 
-        photo = PhotoImage(file=os.path.join(os.path.dirname(__file__), 'resources/properties.png'))
+        photo = PhotoImage(file=os.path.join(self.os_main_root, 'resources/properties.png'))
 
         button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color,
                         cursor=self.pointer_cursor, highlightbackground=bg_color)

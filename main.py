@@ -125,7 +125,8 @@ class Revealer2:
 
         self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link,
                                         settings_func=self.change_ip_click,
-                                        properties_view_func=self.view_prop)
+                                        properties_view_func=self.view_prop,
+                                        os_main_root=os.path.dirname(__file__))
 
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
