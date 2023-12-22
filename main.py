@@ -780,15 +780,16 @@ class Revealer2:
         if len(devices) > 0:
             mb.showinfo(
                 "Change settings...",
-                "Success.\nNew settings were applied.\nPlease update list of the devices "
+                "Success.\nNew settings were applied.\nPlease update the list of "
+                "the devices by clicking the Search button "
                 "to find this device with the new IP address.",
                 parent=self.root
             )
         else:
             mb.showerror(
                 "Change settings...",
-                "Error.\nSomething went wrong while setting new settings."
-                "\nPlease check inserted values and try again.",
+                "Error.\nSomething went wrong while setting the new settings."
+                "\nPlease check the values inserted and try again.",
                 parent=self.root
             )
 
@@ -1021,6 +1022,10 @@ class MIPASDialog(sd.Dialog):
     ENTRY_STATE_DISABLED = "disabled"
     ENTRY_STATE_NORMAL = "normal"
 
+    USER_NOTE_TEXT = "\nNote: this is a service low-level interface\nfor changing network settings in another subnet." \
+                     "\nThe main configuration method is\nthe web interface where " \
+                     "the full device information is provided."
+
     def __init__(self, title, device, uuid,
                  initialvalue=None,
                  parent=None):
@@ -1123,7 +1128,6 @@ class MIPASDialog(sd.Dialog):
 
         # start with the default text
         self.entry_ip.insert(0, self.DEFAULT_ENTRY_IP_TEXT)
-        self.entry_ip.select_range(0, END)
         self.entry_ip.bind("<FocusIn>", self.entry_click)
         self.entry_ip.bind("<Button-1>", self.entry_click)
         self.entry_ip.bind("<FocusOut>", self.entry_leave)
@@ -1136,7 +1140,6 @@ class MIPASDialog(sd.Dialog):
 
         # start with the default text
         self.entry_mask.insert(0, self.DEFAULT_ENTRY_MASK_TEXT)
-        self.entry_mask.select_range(0, END)
         self.entry_mask.bind("<FocusIn>", self.entry_click)
         self.entry_mask.bind("<Button-1>", self.entry_click)
         self.entry_mask.bind("<FocusOut>", self.entry_leave)
@@ -1149,10 +1152,19 @@ class MIPASDialog(sd.Dialog):
 
         # start with the default text
         self.entry_gateway.insert(0, self.DEFAULT_ENTRY_GATEWAY_TEXT)
-        self.entry_gateway.select_range(0, END)
         self.entry_gateway.bind("<FocusIn>", self.entry_click)
+        self.entry_gateway.bind("<Button-1>", self.entry_click)
         self.entry_gateway.bind("<FocusOut>", self.entry_leave)
         self.entry_gateway.default = True
+
+        # add note about settings for the user
+        note_frame = Frame(master)
+        note_frame.grid(row=3, column=0, sticky='ns')
+
+        Label(note_frame, text=self.USER_NOTE_TEXT, justify=LEFT,
+              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'italic')).grid(
+            column=0, row=0, padx=5, sticky='w'
+        )
 
         self.update()
         self.update_idletasks()
@@ -1178,18 +1190,20 @@ class MIPASDialog(sd.Dialog):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
             warning_msg += "IP Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
-                           " number from 0 to 255." \
+                           " a number from 0 to 255." \
                            "\nExample: 192.168.1.1."
         if self.check_format(result_ip['netmask'], self.NET_MASK_RE):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
-            warning_msg += "\nNetwork Mask format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
-                           " number from 0 to 255.\nExample: 255.255.0.0."
+            warning_msg += "\nNetwork Mask format is incorrect.\nMost likely you need Network Mask 255.255.0.0 or " \
+                           "255.255.255.0.\nIf these are not the masks that you need check the list of " \
+                           "the possible network masks values " \
+                           "on the Internet and insert it in the format of #.#.#.#, where # stands for a number."
         if result_ip['gateway'] != '' and self.check_format(result_ip['gateway'], self.IP_ADDRESS_RE):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
             warning_msg += "Gateway Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
-                           " number from 0 to 255." \
+                           " a number from 0 to 255." \
                            "\nExample: 192.168.1.1."
         return warning_msg
 
@@ -1208,7 +1222,7 @@ class MIPASDialog(sd.Dialog):
         if len(result_ip['password']) > 20:
             mb.showwarning(
                 "Password is too long",
-                "\nPassword of this device can be 20 or less symbols long.",
+                "\nThe length of the password of this device can be 20 symbols or less.",
                 parent=self
             )
             return 0
@@ -1216,7 +1230,8 @@ class MIPASDialog(sd.Dialog):
         if result_ip['dhcp'] == 0 and (result_ip['ip'] == '' or result_ip['netmask'] == ''):
             mb.showwarning(
                 "Warning",
-                "\nPlease insert new IP address and Network Mask or choose DHCP server for IP configuration.",
+                "\nPlease insert the new IP address and the Network Mask or choose the DHCP mode "
+                "for the IP configuration.",
                 parent=self
             )
             return 0
@@ -1309,13 +1324,15 @@ class PropDialog(sd.Dialog):
             cursor = ''
             if self.dict[name] is not None:
                 try:
+                    text_color = DEFAULT_TEXT_COLOR
                     label_name = self.labels_dict[name]
-                    Label(master, text=label_name + ": ", justify=LEFT, fg=DEFAULT_TEXT_COLOR,
+                    Label(master, text=label_name + ": ", justify=LEFT, fg=text_color,
                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
                                 'bold')).grid(column=0, row=row_index, padx=5, sticky='w')
                     label_count += 1
                     if name == 'presentationURL':
-                        Label(master, text=self.url, justify=LEFT, cursor=self.pointer_cursor, fg=DEFAULT_TEXT_COLOR,
+                        text_color = "blue"
+                        Label(master, text=self.url, justify=LEFT, cursor=self.pointer_cursor, fg=text_color,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline')).grid(
                             column=1, row=row_index, padx=5, sticky='w')
                         label_count += 1
@@ -1323,7 +1340,8 @@ class PropDialog(sd.Dialog):
                         if self.dict[name][0:4] == "http":
                             font_style = 'underline'
                             cursor = self.pointer_cursor
-                        Label(master, text=self.dict[name], justify=LEFT, cursor=cursor, fg=DEFAULT_TEXT_COLOR,
+                            text_color = "blue"
+                        Label(master, text=self.dict[name], justify=LEFT, cursor=cursor, fg=text_color,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_style)).grid(
                             column=1, row=row_index, padx=5, sticky='w')
                         label_count += 1
