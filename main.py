@@ -2,10 +2,11 @@ import os
 import re
 import logging as log
 
+import time
 import random
 
 from tkinter import Tk, Frame, Label, Canvas, PhotoImage, LabelFrame, TclError, HORIZONTAL, VERTICAL, LEFT, Entry, \
-    Checkbutton, Button, ACTIVE, END, IntVar
+    Checkbutton, Button, ACTIVE, END, IntVar, Toplevel
 from tkinter import ttk, font
 import tkinter.messagebox as mb
 import tkinter.simpledialog as sd
@@ -186,7 +187,7 @@ class Revealer2:
         :return:
         """
 
-        if self._in_process.is_set():
+        if self._in_process.is_set() or not self._update_table_thread.empty():
             self.main_table.update()
             self.root.update_idletasks()
             self.main_table.delete_to_widget(0)
@@ -198,7 +199,7 @@ class Revealer2:
         return
 
     def update_buttons(self):
-        if self._in_process.is_set():
+        if self._in_process.is_set() or not self._update_table_thread.empty():
             self.button["state"] = "disabled"
             self.button["text"] = "Searching..."
             self.button["cursor"] = ""
@@ -239,13 +240,20 @@ class Revealer2:
             self._old_search_thread.stop_thread()
             self._notify_search_thread.stop_thread()
 
+            # wait till all threads are stopped
+            while self._update_table_thread.task_in_process() and \
+                    self._ssdp_search_thread.task_in_process() and \
+                    self._old_search_thread.task_in_process() and \
+                    self._notify_search_thread.task_in_process():
+                pass
+
             del self._update_table_thread
             del self._ssdp_search_thread
             del self._old_search_thread
             del self._notify_search_thread
 
             self.sock_notify.close()
-            # and only after this - kill the app
+            # and only after all of this - kill the app
             self.root.destroy()
 
     def print_i(self, string):
@@ -432,9 +440,11 @@ class Revealer2:
                         continue
 
                     # if ip.ip is suitable for m-search - try to listen for notify messages also
-                    # notify_listen_thread = threading.Thread(target=self.listen_notify_task, args=[ip.ip])
-                    # notify_listen_thread.start()
                     self._notify_search_thread.add_task(self.listen_notify_task, ip.ip)
+
+                    # we need to wait a little bit for notify listen to start on this ip for correct answers receiving
+                    # See #89128.
+                    time.sleep(0.01)
 
                     # set timeout
                     sock.settimeout(1)
@@ -626,7 +636,7 @@ class Revealer2:
             except ValueError:
                 http_index = -1
                 log.debug(f"We have location string from {addr} with URL with incorrect format:"
-                            f" {string}. We can not get its location and xml-file.")
+                          f" {string}. We can not get its location and xml-file.")
                 ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
 
             log.debug(f"We found device http_index = {http_index} with long LOCATION: {words_string}")
@@ -650,7 +660,7 @@ class Revealer2:
                     ssdp_dict["ssdp_url"] = addr
 
                 log.debug(f"We found device with long LOCATION: {ssdp_dict['location']}. "
-                            f"And got its URL: {ssdp_dict['ssdp_url']}")
+                          f"And got its URL: {ssdp_dict['ssdp_url']}")
         else:
             log.warning(f"We have location string from {addr} with URL with incorrect format:"
                         f" {string}. We can not get its location and xml-file.")
@@ -1067,8 +1077,6 @@ class MIPASDialog(sd.Dialog):
 
     def body(self, master):
 
-        # self.minsize(width=300, height=200)
-
         device_frame = Frame(master)
         device_frame.grid(row=0, column=0, sticky='news')
 
@@ -1284,6 +1292,8 @@ class PropDialog(sd.Dialog):
 
         row_index = 0
 
+        label_count = 0
+
         for name in self.dict:
             font_style = ''
             cursor = ''
@@ -1293,10 +1303,12 @@ class PropDialog(sd.Dialog):
                     Label(master, text=label_name + ": ", justify=LEFT, fg=DEFAULT_TEXT_COLOR,
                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
                                 'bold')).grid(column=0, row=row_index, padx=5, sticky='w')
+                    label_count += 1
                     if name == 'presentationURL':
                         Label(master, text=self.url, justify=LEFT, cursor=self.pointer_cursor, fg=DEFAULT_TEXT_COLOR,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline')).grid(
                             column=1, row=row_index, padx=5, sticky='w')
+                        label_count += 1
                     else:
                         if self.dict[name][0:4] == "http":
                             font_style = 'underline'
@@ -1304,6 +1316,7 @@ class PropDialog(sd.Dialog):
                         Label(master, text=self.dict[name], justify=LEFT, cursor=cursor, fg=DEFAULT_TEXT_COLOR,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_style)).grid(
                             column=1, row=row_index, padx=5, sticky='w')
+                        label_count += 1
                     row_index += 1
                 except KeyError:
                     pass
@@ -1313,16 +1326,18 @@ class PropDialog(sd.Dialog):
         self.update()
         self.update_idletasks()
 
+        print(self.winfo_height())
+
         self.minsize(width=self.winfo_width()*2,
-                     height=self.winfo_height()+75)
+                     height=label_count*12)
 
         return self
 
     def buttonbox(self):
-        '''add standard button box.
+        """add standard button box.
 
         override if you do not want the standard buttons
-        '''
+        """
 
         box = Frame(self)
 
