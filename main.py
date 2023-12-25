@@ -1022,9 +1022,10 @@ class MIPASDialog(sd.Dialog):
     ENTRY_STATE_DISABLED = "disabled"
     ENTRY_STATE_NORMAL = "normal"
 
-    USER_NOTE_TEXT = "\nNote: this is a service low-level interface\nfor changing network settings in another subnet." \
-                     "\nThe main configuration method is\nthe web interface where " \
-                     "the full device information is provided."
+    USER_NOTE_TEXT = "\nNote: this is a service low-level interface for changing the network settings of the device" \
+                     " in another subnet." \
+                     "\nThe main configuration method is the web interface where " \
+                     "all device information and its current network settings are provided."
 
     def __init__(self, title, device, uuid,
                  initialvalue=None,
@@ -1044,6 +1045,8 @@ class MIPASDialog(sd.Dialog):
         self.checkbox_dhcp = None
         self.dhcp = IntVar()
 
+        self.note_label = None
+
         # for macos we may want to change this color to white or just default system color
         self.text_color = "SystemButtonText"
 
@@ -1059,6 +1062,7 @@ class MIPASDialog(sd.Dialog):
             try:
                 entry_widget.configure(fg=self.text_color)
             except TclError:
+                entry_widget.configure(fg=DEFAULT_TEXT_COLOR)
                 pass
 
     def entry_leave(self, event):
@@ -1159,20 +1163,24 @@ class MIPASDialog(sd.Dialog):
 
         # add note about settings for the user
         note_frame = Frame(master)
-        note_frame.grid(row=3, column=0, sticky='ns')
+        note_frame.grid(row=3, column=0, sticky='news')
 
-        Label(note_frame, text=self.USER_NOTE_TEXT, justify=LEFT,
-              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'italic')).grid(
-            column=0, row=0, padx=5, sticky='w'
-        )
+        self.note_label = Label(note_frame, text=self.USER_NOTE_TEXT, justify=LEFT,
+              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'italic'), wraplength=100)
+        self.note_label.grid(column=0, row=0, padx=5, sticky='we')
 
         self.update()
         self.update_idletasks()
 
         self.minsize(width=max(device_frame.winfo_width(), frame.winfo_width())+10,
-                     height=(device_frame.winfo_height() + frame.winfo_height() + 100))
+                     height=(device_frame.winfo_height() + self.note_label.winfo_height() + 50))
+
+        note_frame.bind('<Configure>', self._configure_canvas)
 
         return self.entry_password
+
+    def _configure_canvas(self, event):
+        self.note_label.configure(wraplength=event.widget.winfo_width())
 
     def _dhcp_change_state(self):
         if self.dhcp.get():
