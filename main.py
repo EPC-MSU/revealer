@@ -49,7 +49,7 @@ class Revealer2:
     MULTICAST_SSDP_PORT = 1900
 
     # time for redrawing all widgets in milliseconds
-    UPDATE_TIME_MS = 250
+    UPDATE_TIME_MS = 100
 
     # To add support of our new device add it in ths dictionary
     #
@@ -113,21 +113,21 @@ class Revealer2:
 
         mainframe = ttk.Frame(self.root, padding="8 3 8 8")
         mainframe.grid(column=0, row=0, sticky="news")
-
         mainframe.grid_rowconfigure(1, weight=1)
         mainframe.grid_columnconfigure(0, weight=1)
-
         mainframe.propagate(False)
 
         # add Search-button
         self.button = ttk.Button(mainframe, text="Search", command=self.start_thread_search, cursor=self.pointer_cursor)
         self.button.grid(column=0, row=0, sticky='new')
 
+        # add main revealer table
         self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link,
                                         settings_func=self.change_ip_click,
                                         properties_view_func=self.view_prop,
                                         os_main_root=os.path.dirname(__file__))
 
+        # configure paddings for the main frame
         for child in mainframe.winfo_children():
             child.grid_configure(padx=5, pady=5)
 
@@ -141,26 +141,35 @@ class Revealer2:
 
         self.info = ""
 
+        # thread with the adding new rows methods
         self._update_table_thread = ProcessThread()
         self._update_table_thread.start()
-
+        # ssdp search thread
         self._ssdp_search_thread = ProcessThread()
         self._ssdp_search_thread.start()
-
+        # legacy search thread
         self._old_search_thread = ProcessThread()
         self._old_search_thread.start()
-
+        # thread for listening notify
         self._notify_search_thread = ProcessThread()
         self._notify_search_thread.start()
 
+        # flag of the GUI destroying, is set than user wants to close the window
         self._destroy_flag = threading.Event()
+        # flag of the search in progress
         self._in_process = threading.Event()
         # thread safe event to indicate that we need to update main table one time after search is ended
         self._in_process_after = threading.Event()
-
+        # flag of the MIPAS in progress
         self._changing_settings = threading.Event()
+
+        # flag indicating that main button state was changed for some process
         self.buttons_state_changed = False
+        # flag indicating that table buttons states were changed for MIPAS
         self.table_buttons_state_changed = False
+
+        # flag indicating that we are in the process
+        self.window_updating = False
 
     def __del__(self):
         self.sock_notify.close()
@@ -172,6 +181,7 @@ class Revealer2:
 
         :return:
         """
+
         # update buttons
         self.update_buttons()
         # update table
@@ -179,7 +189,11 @@ class Revealer2:
         # update table buttons after
         self.update_table_buttons()
         # reschedule
-        self.root.after(self.UPDATE_TIME_MS, self.update_window)
+        if not self._destroy_flag.is_set():
+            self.window_updating = True
+            self.root.after(self.UPDATE_TIME_MS, self.update_window)
+        else:
+            self.window_updating = False
 
     def update_main_table(self):
         """
@@ -189,14 +203,16 @@ class Revealer2:
         """
 
         if self._in_process.is_set() or not self._update_table_thread.empty():
-            self.main_table.update()
-            self.root.update_idletasks()
-            self.main_table.delete_to_widget(0)
+            self.main_table.update_with_rewriting()
+            # self.main_table.update()
+            # self.root.update_idletasks()
+            # self.main_table.delete_to_widget(0)
         elif self._in_process_after.is_set():
             self._in_process_after.clear()
-            self.main_table.update()
-            self.root.update_idletasks()
-            self.main_table.delete_to_widget(0)
+            self.main_table.update_with_rewriting()
+            # self.main_table.update()
+            # self.root.update_idletasks()
+            # self.main_table.delete_to_widget(0)
         return
 
     def update_buttons(self):
@@ -248,14 +264,22 @@ class Revealer2:
                     self._notify_search_thread.task_in_process():
                 pass
 
-            del self._update_table_thread
-            del self._ssdp_search_thread
-            del self._old_search_thread
-            del self._notify_search_thread
-
             self.sock_notify.close()
+
+            # wait till we stops updating table here for not disturbing tkinter
+            if self.window_updating:
+                log.warning(f"We are updating the window so please wait...")
+                self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
+
+    def destroy_after(self):
+
+        if not self.window_updating:
             # and only after all of this - kill the app
+            log.warning("Now the window can be closed. Bye.")
             self.root.destroy()
+        else:
+            log.warning("We are updating the window so please wait...")
+            self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
 
     def print_i(self, string):
         if len(self.info) > 0:
@@ -1172,7 +1196,7 @@ class MIPASDialog(sd.Dialog):
         self.update()
         self.update_idletasks()
 
-        self.minsize(width=max(device_frame.winfo_width(), frame.winfo_width())+10,
+        self.minsize(width=max(device_frame.winfo_width(), frame.winfo_width(), note_frame.winfo_width())+30,
                      height=(device_frame.winfo_height() + self.note_label.winfo_height() + 50))
 
         note_frame.bind('<Configure>', self._configure_canvas)
@@ -1313,8 +1337,10 @@ class PropDialog(sd.Dialog):
         try:
             test_label = Label(parent, text='', cursor=self.pointer_cursor)
             test_label.destroy()
+            self.text_color = "SystemButtonText"
         except TclError:
             self.pointer_cursor = CURSOR_POINTER
+            self.text_color = DEFAULT_TEXT_COLOR
 
         sd.Dialog.__init__(self, parent, device_name)
 
@@ -1332,7 +1358,7 @@ class PropDialog(sd.Dialog):
             cursor = ''
             if self.dict[name] is not None:
                 try:
-                    text_color = DEFAULT_TEXT_COLOR
+                    text_color = self.text_color
                     label_name = self.labels_dict[name]
                     Label(master, text=label_name + ": ", justify=LEFT, fg=text_color,
                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
@@ -1364,7 +1390,7 @@ class PropDialog(sd.Dialog):
 
         print(self.winfo_height())
 
-        self.minsize(width=self.winfo_width()*2,
+        self.minsize(width=max(self.winfo_width()*2, 350),
                      height=label_count*12)
 
         return self

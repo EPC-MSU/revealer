@@ -157,6 +157,9 @@ class RevealerTable:
 
     BLANK_LINE_TAG = "blank"
 
+    # this value minus 3 defines max ssdp devices counts to be listed without moving the legacy table
+    LEGACY_HEADER_ROW = 1000
+
     lock = threading.Lock()
 
     def __init__(self, master, col, row, height, left_click_url_func=None, right_click_func=None, settings_func=None,
@@ -195,12 +198,21 @@ class RevealerTable:
         except TclError:
             self.pointer_cursor = CURSOR_POINTER
 
+        self.ssdp_rows = []
+        self.legacy_rows = []
+
     def create_table(self, master, col, row, height):
 
         # prepare frame for using with scrollbar
         self.great_table = VerticalScrolledFrame(master, column=col, row=row, borderwidth=1, relief="solid",
                                                  background=DEFAULT_BG_COLOR,
                                                  height=height, width=500)
+
+        # number of shown devices
+        self.ssdp_shown = 0
+        self.legacy_shown = 0
+
+        self.legacy_header_row = self.LEGACY_HEADER_ROW
 
         # get object of the real frame to fill in with found devices
         new_table = self.great_table.interior
@@ -308,6 +320,64 @@ class RevealerTable:
         log.debug(f"len(self.main_table.winfo_children()) = {len(self.main_table.winfo_children())}."
                     f" Time = {time.time() - _start_time} secs. Other time = {time.time() - _time}")
 
+    def update_with_rewriting(self):
+        """
+        Update main table with rewriting data in the labels and not rebuilding the whole table
+        :return:
+        """
+
+        self.ssdp_shown = len(self.ssdp_rows)
+        self.legacy_shown = len(self.legacy_rows)
+
+        # update ssdp devices if its row was already in the list or add row
+        for i in range(len(self.device_list._ssdp_devices)):
+            if i+1 > self.ssdp_shown:
+                self.add_ssdp_row(row=i + 1, device_row=self.device_list._ssdp_devices[i])
+            else:
+                device_info = self.device_list._ssdp_devices[i].get_dict()
+                # just update row info
+                self.ssdp_rows[i][0].configure(text=device_info['name'])
+                self.ssdp_rows[i][1].configure(text=device_info['link'])
+                # update buttons
+                self.button_reinit(self.ssdp_rows[i][2], device_info)
+
+        # if no legacy devices were shown and now we have some - draw legacy headers
+        # TODO: what if we have a lot of devices - we need to move all rows down
+        if self.legacy_shown == 0 and len(self.device_list._old_devices) > 0:
+            self.add_legacy_headers(row=self.LEGACY_HEADER_ROW)
+
+        for i in range(len(self.device_list._old_devices)):
+            if i+1 > self.legacy_shown:
+                self.add_legacy_row(row=self.LEGACY_HEADER_ROW + i + 1 + 3, device_row=self.device_list._old_devices[i])
+            else:
+                # just update row info
+                self.legacy_rows[i][0].configure(text=self.device_list._old_devices[i].name)
+                self.legacy_rows[i][1].configure(text=self.device_list._old_devices[i].link)
+
+    def button_reinit(self, button, device_info):
+        name = device_info['name']
+        uuid = device_info['uuid']
+        link = device_info['link']
+        other_data = device_info['other_data']
+        tag = device_info['tag']
+
+        if uuid is None:
+            device_type = RevealerDeviceType.OTHER
+            state = "normal"
+        elif device_info['uuid'] != "":
+            device_type = RevealerDeviceType.OUR
+            state = "normal"
+        else:
+            device_type = RevealerDeviceType.OUR
+            state = "disabled"
+
+        button.reinit(
+            command_change=lambda:
+            self.settings_func(name, uuid, link),
+            command_view=lambda: self.properties_view_func(other_data, link),
+            tag=tag, device_type=device_type, state=state
+        )
+
     def add_ssdp_row(self, row, device_row: RevealerDeviceRow):
 
         device_info = device_row.get_dict()
@@ -320,13 +390,13 @@ class RevealerTable:
         else:
             bg_color = DEFAULT_BG_COLOR
 
-        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
-        middle.grid(row=alpha_row, column=1, sticky='news')
-        middle.tag = device_info['tag']
+        middle_1 = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
+        middle_1.grid(row=alpha_row, column=1, sticky='news')
+        middle_1.tag = device_info['tag']
 
-        middle = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
-        middle.grid(row=alpha_row, column=3, sticky='news')
-        middle.tag = device_info['tag']
+        middle_3 = Frame(self.main_table, takefocus=0, background=bg_color, width=2)
+        middle_3.grid(row=alpha_row, column=3, sticky='news')
+        middle_3.tag = device_info['tag']
 
         font_weight = 'bold'
 
@@ -365,19 +435,19 @@ class RevealerTable:
 
         # add settings button
         if device_info['uuid'] is None:
-            ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
+            button_settings = ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
                            command_change=lambda:
                            self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
                            command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
                            bg_color=bg_color, width=1, tag=device_info['tag'], type=RevealerDeviceType.OTHER)
         elif device_info['uuid'] != "":
-            ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
+            button_settings = ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
                            command_change=lambda:
                            self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
                            command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
                            bg_color=bg_color, width=1, tag=device_info['tag'], type=RevealerDeviceType.OUR)
         else:
-            ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
+            button_settings = ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
                            command_change=lambda:
                            self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
                            command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
@@ -391,6 +461,9 @@ class RevealerTable:
         # bind right-click to 'change_ip'
         link_l.bind("<Button-3>", self.right_click_func)
         device.bind("<Button-3>", self.right_click_func)
+
+        row_widgets = [device, link_l, button_settings]
+        self.ssdp_rows.append(row_widgets)
 
         self.last_row += 1
 
@@ -509,10 +582,16 @@ class RevealerTable:
         # bind left-click to 'open_link'
         link.bind("<Button-1>", self.left_click_func)
 
+        row_widgets = [device, link]
+
+        self.legacy_rows.append(row_widgets)
+
     def delete_all_rows(self):
         self.last_row = 1
         self.legacy_last_row = 0
-        self.legacy_header_row = 0
+
+        self.ssdp_rows = []
+        self.legacy_rows = []
 
         # self.device_list.clear_all()
 
@@ -623,12 +702,13 @@ class ButtonSettings:
     def __init__(self, master, col, row, command_change, command_view, os_main_root,
                  bg_color=DEFAULT_BG_COLOR, width=21,
                  tag=RevealerDeviceTag.LOCAL, state="normal", type=RevealerDeviceType.OUR):
-        frame = Frame(master, background=bg_color, width=width, height=10)
-        frame.grid(column=col, row=row, sticky='news')
-        frame.propagate(False)
-        frame.tag = tag
+        self.frame = Frame(master, background=bg_color, width=width, height=10)
+        self.frame.grid(column=col, row=row, sticky='news')
+        self.frame.propagate(False)
+        self.frame.tag = tag
 
-        frame.button = self
+        self.frame.button = self
+        self.bg_color = bg_color
 
         # os.path.dirname(__file__) to the main.py file
         # it is important to use this specific file path for correct mac os app bundle working
@@ -649,15 +729,15 @@ class ButtonSettings:
         if state == "normal":
             cursor = self.pointer_cursor
             # flag for indication if this button should be enabled for working after search is finished
-            frame.button_flag = True
+            self.frame.button_flag = True
         else:
             cursor = "question_arrow"
             text_settings += "\n\nChange of the network settings in this firmware version is unavailable"
             # flag for indication if this button should not be enabled for working after search is finished
-            frame.button_flag = False
+            self.frame.button_flag = False
 
         if type == RevealerDeviceType.OUR:
-            button = Button(frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor,
+            button = Button(self.frame, image=photo, command=command_change, relief="flat", bg=bg_color, cursor=cursor,
                             highlightbackground=bg_color)
             button.grid(column=1, row=0, ipadx=0, ipady=0, padx=0, pady=0)
             button.image = photo
@@ -666,18 +746,19 @@ class ButtonSettings:
 
             button['activebackground'] = self.ACTIVE_COLOR
 
-            Hovertip(button, text=text_settings, hover_delay=1000)
+            self._change_hovertip = Hovertip(button, text=text_settings, hover_delay=1000)
 
             button.bind("<Leave>", self._on_leave, add="+")
             button.bind("<Enter>", self._on_enter, add="+")
 
             self._button_change = button
         else:
+            self._change_hovertip = None
             self._button_change = None
 
         photo = PhotoImage(file=os.path.join(self.os_main_root, 'resources/properties.png'))
 
-        button = Button(frame, image=photo, command=command_view, relief="flat", bg=bg_color,
+        button = Button(self.frame, image=photo, command=command_view, relief="flat", bg=bg_color,
                         cursor=self.pointer_cursor, highlightbackground=bg_color)
         button.grid(column=0, row=0, ipadx=0, ipady=0, padx=0, pady=0)
         button.image = photo
@@ -694,6 +775,64 @@ class ButtonSettings:
         button.bind("<Enter>", self._on_enter, add="+")
 
         self._button_view = button
+
+    def reinit(self, command_view, command_change, tag, device_type, state="normal"):
+        """
+        Method of reinitialization of the buttons
+
+        :param command_view:
+        :param command_change:
+        :param device_type:
+        :param tag:
+        :param state:
+        :return:
+        """
+        # update frame tag
+        self.frame.tag = tag
+
+        # update button settings widget
+        photo = PhotoImage(file=os.path.join(self.os_main_root, 'resources/settings2.png'))
+
+        text_settings = "Change network settings..."
+
+        if state == "normal":
+            cursor = self.pointer_cursor
+            # flag for indication if this button should be enabled for working after search is finished
+            self.frame.button_flag = True
+        else:
+            cursor = "question_arrow"
+            text_settings += "\n\nChange of the network settings in this firmware version is unavailable"
+            # flag for indication if this button should not be enabled for working after search is finished
+            self.frame.button_flag = False
+
+        if device_type == RevealerDeviceType.OUR and self._button_change is None:
+            # add button if it doesn't exist
+            button = Button(self.frame, image=photo, command=command_change, relief="flat",
+                            bg=self.bg_color, cursor=cursor,
+                            highlightbackground=self.bg_color)
+            button.grid(column=1, row=0, ipadx=0, ipady=0, padx=0, pady=0)
+            button.image = photo
+            button.bg_default = self.bg_color
+            button["state"] = state
+
+            button['activebackground'] = self.ACTIVE_COLOR
+
+            self._change_hovertip = Hovertip(button, text=text_settings, hover_delay=1000)
+
+            button.bind("<Leave>", self._on_leave, add="+")
+            button.bind("<Enter>", self._on_enter, add="+")
+
+            self._button_change = button
+        elif device_type == RevealerDeviceType.OUR and self._button_change is not None:
+            self._button_change.configure(command=command_change)
+            self._button_change.configure(cursor=cursor)
+            self._change_hovertip.text = text_settings
+        elif device_type != RevealerDeviceType.OUR and self._button_change is not None:
+            self._button_change.destroy()
+            self._button_change = None
+
+        # update properties button
+        self._button_view.configure(command=command_view)
 
     def disable(self):
         """
