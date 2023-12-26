@@ -183,6 +183,9 @@ class Revealer2:
         # flag of the MIPAS in progress
         self._changing_settings = threading.Event()
 
+        self._ssdp_stop = threading.Event()
+        self._ssdp_stop.set()
+
         # flag indicating that main button state was changed for some process
         self.buttons_state_changed = False
         # flag indicating that table buttons states were changed for MIPAS
@@ -224,15 +227,11 @@ class Revealer2:
 
         if self._in_process.is_set() or not self._update_table_thread.empty():
             self.main_table.update_with_rewriting()
-            # self.main_table.update()
-            # self.root.update_idletasks()
-            # self.main_table.delete_to_widget(0)
+            self.table_buttons_state_changed = True
         elif self._in_process_after.is_set():
             self._in_process_after.clear()
             self.main_table.update_with_rewriting()
-            # self.main_table.update()
-            # self.root.update_idletasks()
-            # self.main_table.delete_to_widget(0)
+            self.table_buttons_state_changed = True
         return
 
     def update_buttons(self):
@@ -269,14 +268,24 @@ class Revealer2:
             self.main_table.enable_all_buttons()
 
     def on_closing(self):
+        """
+        Method to be called on X button to close the application.
+        :return:
+        """
+
+        # create window with closing information
         popup = Toplevel()
         popup.grab_set()
         popup_label = Label(popup, text="Revealer is closing. Please wait, it may take some time...")
         popup_label.grid(column=0, row=0, sticky="news")
         popup_label.grid_configure(padx=15, pady=15)
-
+        # center this window
         center(popup)
+        # update this window
+        popup.update()
+        self.root.update_idletasks()
 
+        # set destroying flag
         self._destroy_flag.set()
         # close all threads first
         self._update_table_thread.stop_thread()
@@ -285,12 +294,13 @@ class Revealer2:
         self._notify_search_thread.stop_thread()
 
         # wait till all threads are stopped
-        while self._update_table_thread.task_in_process() and \
-                self._ssdp_search_thread.task_in_process() and \
-                self._old_search_thread.task_in_process() and \
-                self._notify_search_thread.task_in_process():
+        while self._update_table_thread.task_in_process() or \
+                self._ssdp_search_thread.task_in_process() or \
+                self._old_search_thread.task_in_process() or \
+                self._notify_search_thread.task_in_process() or not self._ssdp_stop.is_set():
             pass
 
+        # close notify socket
         self.sock_notify.close()
 
         # wait till we stops updating table here for not disturbing tkinter
@@ -298,29 +308,12 @@ class Revealer2:
             log.info(f"We are updating the window so please wait...")
             self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
 
-        """if mb.askokcancel("Quit", "Do you want to quit?"):
-            self._destroy_flag.set()
-            # close all threads first
-            self._update_table_thread.stop_thread()
-            self._ssdp_search_thread.stop_thread()
-            self._old_search_thread.stop_thread()
-            self._notify_search_thread.stop_thread()
-
-            # wait till all threads are stopped
-            while self._update_table_thread.task_in_process() and \
-                    self._ssdp_search_thread.task_in_process() and \
-                    self._old_search_thread.task_in_process() and \
-                    self._notify_search_thread.task_in_process():
-                pass
-
-            self.sock_notify.close()
-
-            # wait till we stops updating table here for not disturbing tkinter
-            if self.window_updating:
-                log.warning(f"We are updating the window so please wait...")
-                self.root.after(self.UPDATE_TIME_MS, self.destroy_after)"""
-
     def destroy_after(self):
+        """
+        After callback for destroying everything after our main updating after-method finished its work.
+
+        :return:
+        """
 
         if not self.window_updating:
             # and only after all of this - kill the app
@@ -338,7 +331,7 @@ class Revealer2:
     def show_info(self):
         """
         Method for catching exceptions and showing them in separate windows.
-        :param args:
+
         :return:
         """
         if len(self.info) > 0 and not self._destroy_flag.is_set():
@@ -351,14 +344,10 @@ class Revealer2:
         # and delete all devices from the device list of the table
         self.main_table.device_list.clear_all()
 
+        # information about this search
         self.info = ""
 
-        # search_thread = threading.Thread(target=self.ssdp_search_task)
-        # old_search_thread = threading.Thread(target=self.old_search_task)
-
-        # search_thread.start()
-        # old_search_thread.start()
-
+        # start thread searches
         self._ssdp_search_thread.add_task(self.ssdp_search_task)
         self._old_search_thread.add_task(self.old_search_task)
 
@@ -440,24 +429,37 @@ class Revealer2:
                     log.info(f"Can't open {label.link} link.")
 
     def _listen_and_capture_returned_responses_url(self, sock: socket.socket, devices):
-        try:
-            while not self._destroy_flag.is_set():
-                data, addr = sock.recvfrom(8192)
-                data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
-                # if we have not received this location before
-                # if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
-                #     devices.add(data_dict["ssdp_url"])
-                if not data_dict["uuid"] in devices and data_dict["server"] != "":
-                    devices.add(data_dict["uuid"])
-                    # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
-                    self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr)
-        except socket.timeout:
-            pass
-        except OSError:
-            pass
+        while not self._destroy_flag.is_set() and not self._ssdp_stop.is_set():
+            try:
+                while not self._destroy_flag.is_set() and not self._ssdp_stop.is_set():
+                    data, addr = sock.recvfrom(8192)
+                    data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
+                    # if we have not received this location before
+                    # if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
+                    #     devices.add(data_dict["ssdp_url"])
+                    if not data_dict["uuid"] in devices and data_dict["server"] != "":
+                        devices.add(data_dict["uuid"])
+                        # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
+                        self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr)
+            except socket.timeout:
+                pass
+            except OSError:
+                break
 
         self._notify_stop_flag = True
         sock.close()
+
+    def ssdp_timer_task(self):
+        """
+        Thread task for timer for ssdp search.
+        :return:
+        """
+        # ssdp timer is divided in two parts for more fast closing
+        if not self._destroy_flag.is_set():
+            time.sleep(1.25)
+        if not self._destroy_flag.is_set():
+            time.sleep(1.25)
+        self._ssdp_stop.set()
 
     def ssdp_search_task(self):
         # M-Search message body
@@ -465,7 +467,7 @@ class Revealer2:
             'M-SEARCH * HTTP/1.1\r\n' \
             'HOST:239.255.255.250:1900\r\n' \
             'ST:upnp:rootdevice\r\n' \
-            'MX:1\r\n' \
+            'MX:2\r\n' \
             'MAN:"ssdp:discover"\r\n' \
             '\r\n'
 
@@ -510,9 +512,12 @@ class Revealer2:
                         time.sleep(0.05)
 
                     # set timeout
-                    sock.settimeout(2)
+                    sock.settimeout(0.05)
+                    self._ssdp_stop.clear()
                     try:
                         sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
+                        timer = threading.Thread(target=self.ssdp_timer_task)
+                        timer.start()
                     except OSError:
                         continue
 
@@ -725,7 +730,7 @@ class Revealer2:
                           f"And got its URL: {ssdp_dict['ssdp_url']}")
         else:
             log.info(f"We have location string from {addr} with URL with incorrect format:"
-                        f" {string}. We can not get its location and xml-file.")
+                     f" {string}. We can not get its location and xml-file.")
             ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
 
     def _parse_ssdp_headeer_usn(self, string, ssdp_dict, addr) -> None:
@@ -791,12 +796,10 @@ class Revealer2:
 
     def change_ip_multicast(self, uuid, settings_dict):
 
-        # delete any info from pevious processe
+        # delete any info from previous process
         self.info = ""
 
-        # thread_change = threading.Thread(target=lambda: self.change_ip_multicast_task(uuid, settings_dict))
         # start process for changing settings in another thread
-        # thread_change.start()
         # TODO: maybe we need different proccess thread for this changing
         self._ssdp_search_thread.add_task(self.change_ip_multicast_task, uuid, settings_dict)
 

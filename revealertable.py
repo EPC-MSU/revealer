@@ -8,7 +8,6 @@ import time
 import logging as log
 from revealerdevice import RevealerDeviceTag, RevealerDeviceType, RevealerDeviceList, RevealerDeviceRow
 
-
 DEFAULT_TEXT_COLOR = "black"
 CURSOR_POINTER = "hand2"
 CURSOR_POINTER_MACOS = "pointinghand"
@@ -208,10 +207,6 @@ class RevealerTable:
                                                  background=DEFAULT_BG_COLOR,
                                                  height=height, width=500)
 
-        # number of shown devices
-        self.ssdp_shown = 0
-        self.legacy_shown = 0
-
         self.legacy_header_row = self.LEGACY_HEADER_ROW
 
         # get object of the real frame to fill in with found devices
@@ -260,7 +255,7 @@ class RevealerTable:
 
         for i in self.main_table.winfo_children():
             if hasattr(i, 'button_flag'):
-                # destroy all children which is not header
+                # disable all buttons
                 if i.button_flag:
                     i.button.disable()
 
@@ -301,14 +296,14 @@ class RevealerTable:
                 i.destroy_tag = '1'
 
         # append ssdp devices
-        for i in range(len(self.device_list._ssdp_devices)):
-            self.add_ssdp_row(row=i+1, device_row=self.device_list._ssdp_devices[i])
+        for i in range(len(self.device_list.ssdp_devices)):
+            self.add_ssdp_row(row=i + 1, device_row=self.device_list.ssdp_devices[i])
 
-        if len(self.device_list._old_devices) > 0:
-            self.add_legacy_headers(row=len(self.device_list._ssdp_devices)+1)
-            start_legacy_row = 4 + len(self.device_list._ssdp_devices)
-            for i in range(len(self.device_list._old_devices)):
-                self.add_legacy_row(row=i+start_legacy_row, device_row=self.device_list._old_devices[i])
+        if len(self.device_list.old_devices) > 0:
+            self.add_legacy_headers(row=len(self.device_list.ssdp_devices) + 1)
+            start_legacy_row = 4 + len(self.device_list.ssdp_devices)
+            for i in range(len(self.device_list.old_devices)):
+                self.add_legacy_row(row=i + start_legacy_row, device_row=self.device_list.old_devices[i])
 
         log.debug(f"old_widget_number = {old_widget_number}")
         log.debug(f"len(self.main_table.winfo_children()) = {len(self.main_table.winfo_children())}")
@@ -318,7 +313,7 @@ class RevealerTable:
         # self.delete_to_widget(old_widget_number)
 
         log.debug(f"len(self.main_table.winfo_children()) = {len(self.main_table.winfo_children())}."
-                    f" Time = {time.time() - _start_time} secs. Other time = {time.time() - _time}")
+                  f" Time = {time.time() - _start_time} secs. Other time = {time.time() - _time}")
 
     def update_with_rewriting(self):
         """
@@ -326,35 +321,66 @@ class RevealerTable:
         :return:
         """
 
-        self.ssdp_shown = len(self.ssdp_rows)
-        self.legacy_shown = len(self.legacy_rows)
+        ssdp_shown = len(self.ssdp_rows)
+        legacy_shown = len(self.legacy_rows)
 
-        # update ssdp devices if its row was already in the list or add row
-        for i in range(len(self.device_list._ssdp_devices)):
-            if i+1 > self.ssdp_shown:
-                self.add_ssdp_row(row=i + 1, device_row=self.device_list._ssdp_devices[i])
+        len_ssdp = len(self.device_list.ssdp_devices)
+        len_legacy = len(self.device_list.old_devices)
+        min_len = min(len_ssdp, len_legacy)
+
+        # if no legacy devices were shown and now we have some - draw legacy headers
+        # TODO: what if we have a lot of devices - we need to move all rows down
+        if legacy_shown == 0 and len(self.device_list.old_devices) > 0:
+            self.add_legacy_headers(row=self.LEGACY_HEADER_ROW)
+
+        # do for every row from each list
+        for i in range(min_len):
+            # update this row in the ssdp list
+            if i + 1 > ssdp_shown:
+                self.add_ssdp_row(row=i + 1, device_row=self.device_list.ssdp_devices[i])
 
             else:
-                device_info = self.device_list._ssdp_devices[i].get_dict()
+                device_info = self.device_list.ssdp_devices[i].get_dict()
                 self.ssdp_row_reinit(device_widget=self.ssdp_rows[i][0], link_widget=self.ssdp_rows[i][1],
                                      button_widget=self.ssdp_rows[i][2], device_info=device_info)
+
+            self.ssdp_rows[i][2].disable()
+
+            # and in the legacy
+            if i + 1 > legacy_shown:
+                self.add_legacy_row(row=self.LEGACY_HEADER_ROW + i + 1 + 3, device_row=self.device_list.old_devices[i])
+
+            else:
+                # just update row info
+                self.legacy_rows[i][0].configure(text=self.device_list.old_devices[i].name)
+                self.legacy_rows[i][1].configure(text=self.device_list.old_devices[i].link)
+
+            if i % 5 == 9:
+                self.main_table.update()
+
+        for i in range(min_len, min_len + max(0, len_legacy-min_len)):
+            if i + 1 > legacy_shown:
+                self.add_legacy_row(row=self.LEGACY_HEADER_ROW + i + 1 + 3, device_row=self.device_list.old_devices[i])
+
+            else:
+                # just update row info
+                self.legacy_rows[i][0].configure(text=self.device_list.old_devices[i].name)
+                self.legacy_rows[i][1].configure(text=self.device_list.old_devices[i].link)
 
             if i % 10 == 9:
                 self.main_table.update()
 
-        # if no legacy devices were shown and now we have some - draw legacy headers
-        # TODO: what if we have a lot of devices - we need to move all rows down
-        if self.legacy_shown == 0 and len(self.device_list._old_devices) > 0:
-            self.add_legacy_headers(row=self.LEGACY_HEADER_ROW)
-
-        for i in range(len(self.device_list._old_devices)):
-            if i+1 > self.legacy_shown:
-                self.add_legacy_row(row=self.LEGACY_HEADER_ROW + i + 1 + 3, device_row=self.device_list._old_devices[i])
+        # update ssdp devices if its row was already in the list or add row
+        for i in range(min_len, min_len + max(0, len_ssdp-min_len)):
+            if i + 1 > ssdp_shown:
+                self.add_ssdp_row(row=i + 1, device_row=self.device_list.ssdp_devices[i])
 
             else:
-                # just update row info
-                self.legacy_rows[i][0].configure(text=self.device_list._old_devices[i].name)
-                self.legacy_rows[i][1].configure(text=self.device_list._old_devices[i].link)
+                device_info = self.device_list.ssdp_devices[i].get_dict()
+                self.ssdp_row_reinit(device_widget=self.ssdp_rows[i][0], link_widget=self.ssdp_rows[i][1],
+                                     button_widget=self.ssdp_rows[i][2], device_info=device_info)
+
+            self.ssdp_rows[i][2].disable()
 
             if i % 10 == 9:
                 self.main_table.update()
@@ -405,7 +431,7 @@ class RevealerTable:
             if link[0:4] == "http":
                 link_widget.configure(text=link)
                 link_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
-                                                       'underline'))
+                                            'underline'))
                 link_widget.configure(fg="blue")
                 link_widget.configure(cursor=self.pointer_cursor)
             else:
@@ -489,8 +515,8 @@ class RevealerTable:
         device.tag = device_info['tag']
         link_l.tag = device_info['tag']
 
-        device.link = link_l['text']
-        link_l.link = link_l['text']
+        device.link = device_info['link']
+        link_l.link = device_info['link']
 
         device.uuid = device_info['uuid']
         device.other_data = device_info['other_data']
@@ -501,23 +527,31 @@ class RevealerTable:
         # add settings button
         if device_info['uuid'] is None:
             button_settings = ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
-                           command_change=lambda:
-                           self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
-                           command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
-                           bg_color=bg_color, width=1, tag=device_info['tag'], type=RevealerDeviceType.OTHER)
+                                             command_change=lambda:
+                                             self.settings_func(device_info['name'], device_info['uuid'],
+                                                                link_l['text']),
+                                             command_view=lambda: self.properties_view_func(device_info['other_data'],
+                                                                                            link_l['text']),
+                                             bg_color=bg_color, width=1, tag=device_info['tag'],
+                                             type=RevealerDeviceType.OTHER)
         elif device_info['uuid'] != "":
             button_settings = ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
-                           command_change=lambda:
-                           self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
-                           command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
-                           bg_color=bg_color, width=1, tag=device_info['tag'], type=RevealerDeviceType.OUR)
+                                             command_change=lambda:
+                                             self.settings_func(device_info['name'], device_info['uuid'],
+                                                                link_l['text']),
+                                             command_view=lambda: self.properties_view_func(device_info['other_data'],
+                                                                                            link_l['text']),
+                                             bg_color=bg_color, width=1, tag=device_info['tag'],
+                                             type=RevealerDeviceType.OUR)
         else:
             button_settings = ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
-                           command_change=lambda:
-                           self.settings_func(device_info['name'], device_info['uuid'], link_l['text']),
-                           command_view=lambda: self.properties_view_func(device_info['other_data'], link_l['text']),
-                           bg_color=bg_color, width=1, tag=device_info['tag'],
-                           state="disabled", type=RevealerDeviceType.OUR)
+                                             command_change=lambda:
+                                             self.settings_func(device_info['name'], device_info['uuid'],
+                                                                link_l['text']),
+                                             command_view=lambda: self.properties_view_func(device_info['other_data'],
+                                                                                            link_l['text']),
+                                             bg_color=bg_color, width=1, tag=device_info['tag'],
+                                             state="disabled", type=RevealerDeviceType.OUR)
 
         # bind double left click and right click
         # bind left-click to 'open_link'

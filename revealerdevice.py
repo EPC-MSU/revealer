@@ -83,16 +83,16 @@ class RevealerDeviceList:
 
     def __init__(self):
 
-        self._ssdp_devices = []
-        self._old_devices = []
+        self.ssdp_devices = []
+        self.old_devices = []
 
         self.ssdp_dict = {}
         self.legacy_dict = {}
         self.ip_dict_whole = {}
 
     def clear_all(self):
-        self._ssdp_devices = []
-        self._old_devices = []
+        self.ssdp_devices = []
+        self.old_devices = []
 
         self.ssdp_dict = {}
         self.legacy_dict = {}
@@ -116,17 +116,17 @@ class RevealerDeviceList:
             if row is not None:
                 device_row.set_row(row=row)
                 log.debug(f"Add ssdp device {device_row.name} to row {row}")
-                self._ssdp_devices.insert(row-1, device_row)
+                self.ssdp_devices.insert(row - 1, device_row)
 
         else:
             row = self.add_device_to_legacy_dict(device_row)
             if row is not None:
                 device_row.set_row(row=row)
-                self._old_devices.insert(row - 1, device_row)
+                self.old_devices.insert(row - 1, device_row)
 
     def print_old_devices(self):
         index = 0
-        for device in self._old_devices:
+        for device in self.old_devices:
             print(index, device.name)
             index += 1
         print()
@@ -207,11 +207,11 @@ class RevealerDeviceList:
         except KeyError:
             self.ip_dict_whole[link] = name
 
-            self.legacy_dict[name] = len(self._old_devices) + len(self._ssdp_devices) + 4
+            self.legacy_dict[name] = len(self.old_devices) + len(self.ssdp_devices) + 4
 
             sorted_list = sorted(self.legacy_dict)
 
-            alpha_row = sorted_list.index(name) + 1  # + len(self._ssdp_devices) + 3
+            alpha_row = sorted_list.index(name) + 1  # + len(self.ssdp_devices) + 3
 
             return alpha_row
 
