@@ -147,13 +147,20 @@ class RevealerDeviceList:
         device = device_info['name'] + device_info['link']
         device_type = device_info['type']
 
+        uuid = device_info['uuid']
+        if uuid is None:
+            try:
+                uuid = device_info['other_data']['UDN'][5:]
+            except Exception:
+                uuid = ''
+
         # check presence in the dict
         try:
-            presence_whole = self.ip_dict_whole[device_info['ip_address']]
+            presence_whole = self.ip_dict_whole[device_info['ip_address']+uuid]
             log.debug(presence_whole)
             return None
         except KeyError:
-            self.ip_dict_whole[device_info['ip_address']] = device_info['name']
+            self.ip_dict_whole[device_info['ip_address']+uuid] = device_info['name']
 
         try:
             presence = self.ssdp_dict[device_info['name'] + device_info['link']]

@@ -333,13 +333,14 @@ class RevealerTable:
         for i in range(len(self.device_list._ssdp_devices)):
             if i+1 > self.ssdp_shown:
                 self.add_ssdp_row(row=i + 1, device_row=self.device_list._ssdp_devices[i])
+
             else:
                 device_info = self.device_list._ssdp_devices[i].get_dict()
-                # just update row info
-                self.ssdp_rows[i][0].configure(text=device_info['name'])
-                self.ssdp_rows[i][1].configure(text=device_info['link'])
-                # update buttons
-                self.button_reinit(self.ssdp_rows[i][2], device_info)
+                self.ssdp_row_reinit(device_widget=self.ssdp_rows[i][0], link_widget=self.ssdp_rows[i][1],
+                                     button_widget=self.ssdp_rows[i][2], device_info=device_info)
+
+            if i % 10 == 9:
+                self.main_table.update()
 
         # if no legacy devices were shown and now we have some - draw legacy headers
         # TODO: what if we have a lot of devices - we need to move all rows down
@@ -349,10 +350,14 @@ class RevealerTable:
         for i in range(len(self.device_list._old_devices)):
             if i+1 > self.legacy_shown:
                 self.add_legacy_row(row=self.LEGACY_HEADER_ROW + i + 1 + 3, device_row=self.device_list._old_devices[i])
+
             else:
                 # just update row info
                 self.legacy_rows[i][0].configure(text=self.device_list._old_devices[i].name)
                 self.legacy_rows[i][1].configure(text=self.device_list._old_devices[i].link)
+
+            if i % 10 == 9:
+                self.main_table.update()
 
     def button_reinit(self, button, device_info):
         name = device_info['name']
@@ -377,6 +382,60 @@ class RevealerTable:
             command_view=lambda: self.properties_view_func(other_data, link),
             tag=tag, device_type=device_type, state=state
         )
+
+    def ssdp_row_reinit(self, device_widget, link_widget, button_widget, device_info):
+
+        tag = device_info['tag']
+        link = device_info['link']
+        uuid = device_info['uuid']
+        other_data = device_info['other_data']
+
+        device_font_weight = 'bold'
+        if uuid is None:
+            device_font_weight = ''
+
+        # device label
+        device_widget.configure(text=device_info['name'])
+        device_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+                                      device_font_weight))
+
+        if tag != "not_local":
+
+            # link label
+            if link[0:4] == "http":
+                link_widget.configure(text=link)
+                link_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+                                                       'underline'))
+                link_widget.configure(fg="blue")
+                link_widget.configure(cursor=self.pointer_cursor)
+            else:
+                link_widget.configure(text=link)
+                link_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+                                            device_font_weight))
+                link_widget.configure(fg=DEFAULT_TEXT_COLOR)
+                link_widget.configure(cursor="arrow")
+
+        else:
+            link_widget.configure(text=link)
+            link_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+                                        device_font_weight))
+            link_widget.configure(fg=DEFAULT_TEXT_COLOR)
+            link_widget.configure(cursor="arrow")
+
+        device_widget.tag = tag
+        link_widget.tag = tag
+
+        device_widget.link = link
+        link_widget.link = link
+
+        device_widget.uuid = uuid
+        device_widget.other_data = other_data
+
+        link_widget.uuid = uuid
+        link_widget.other_data = other_data
+
+        # update buttons
+        self.button_reinit(button_widget, device_info)
 
     def add_ssdp_row(self, row, device_row: RevealerDeviceRow):
 
@@ -407,9 +466,15 @@ class RevealerTable:
             device = Label(self.main_table, text=device_info['name'], anchor="w", background=bg_color,
                            fg=DEFAULT_TEXT_COLOR,
                            font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
-            link_l = Label(self.main_table, text=device_info['link'], anchor="w", background=bg_color,
-                           cursor=self.pointer_cursor,
-                           fg="blue", font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
+            if device_info['link'][0:4] == "http":
+                link_l = Label(self.main_table, text=device_info['link'], anchor="w", background=bg_color,
+                               cursor=self.pointer_cursor,
+                               fg="blue",
+                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
+            else:
+                link_l = Label(self.main_table, text=device_info['link'], anchor="w", background=bg_color,
+                               fg=DEFAULT_TEXT_COLOR,
+                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
         else:
             device = Label(self.main_table, text=device_info['name'], anchor="w", background=bg_color,
                            fg=DEFAULT_TEXT_COLOR,
@@ -612,40 +677,6 @@ class RevealerTable:
                 if widgets_arr[i].destroy_tag == '1':
                     widgets_arr[i].grid_forget()
                     widgets_arr[i].destroy()
-
-    def add_device_to_ssdp_dict(self, device, type, raw):
-        """
-        Method which sort dictionary with ssdp found device for putting our devices higher in the list and sort in
-        alphabetical order in our and other?
-
-        :return: None
-        """
-
-        self.device_list.add_ssdp(device, type, raw)
-
-        our_dict = {}
-        other_dict = {}
-
-        # find end of the our list to sort only them
-        for ex_device in self.ssdp_dict:
-            if self.ssdp_dict[ex_device]['type'] == RevealerDeviceType.OUR:
-                our_dict[ex_device] = self.ssdp_dict[ex_device]
-            else:
-                other_dict[ex_device] = self.ssdp_dict[ex_device]
-
-        if type == RevealerDeviceType.OUR:
-            our_dict[device] = {'type': type, 'raw': raw}
-            sorted_list = sorted(our_dict, key=lambda v: v.upper())
-            alpha_row = sorted_list.index(device) + 1
-
-        else:
-            other_dict[device] = {'type': type, 'raw': raw}
-            sorted_list = sorted(other_dict, key=lambda v: v.upper())
-            alpha_row = sorted_list.index(device) + 1 + len(our_dict)
-
-        self.ssdp_dict[device] = {'type': type, 'raw': raw}
-
-        return alpha_row
 
     def add_row_ssdp_item(self, name, link, ip_address, uuid, other_data, tag):
 

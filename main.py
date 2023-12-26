@@ -33,6 +33,24 @@ CURSOR_POINTER_MACOS = "pointinghand"
 DEFAULT_BG_COLOR = "white"
 
 
+def center(win):
+    """
+    centers a tkinter window
+    :param win: the main window or Toplevel window to center
+    """
+    win.update_idletasks()
+    width = win.winfo_width()
+    frm_width = win.winfo_rootx() - win.winfo_x()
+    win_width = width + 2 * frm_width
+    height = win.winfo_height()
+    titlebar_height = win.winfo_rooty() - win.winfo_y()
+    win_height = height + titlebar_height + frm_width
+    x = win.winfo_screenwidth() // 2 - win_width // 2
+    y = win.winfo_screenheight() // 2 - win_height // 2
+    win.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+    win.deiconify()
+
+
 class SSDPEnhancedDevice:
     def __init__(self, ssdp_device_name, enhanced_ssdp_support_min_fw, enhanced_ssdp_version):
         self.ssdp_device_name = ssdp_device_name
@@ -95,6 +113,8 @@ class Revealer2:
         self.root.geometry("580x400")
 
         self.root.minsize(width=500, height=200)
+
+        center(self.root)
 
         # try to use mac os specific cursor - if exception is raised we are not on mac os and should use default
         self.pointer_cursor = CURSOR_POINTER_MACOS
@@ -249,7 +269,36 @@ class Revealer2:
             self.main_table.enable_all_buttons()
 
     def on_closing(self):
-        if mb.askokcancel("Quit", "Do you want to quit?"):
+        popup = Toplevel()
+        popup.grab_set()
+        popup_label = Label(popup, text="Revealer is closing. Please wait, it may take some time...")
+        popup_label.grid(column=0, row=0, sticky="news")
+        popup_label.grid_configure(padx=15, pady=15)
+
+        center(popup)
+
+        self._destroy_flag.set()
+        # close all threads first
+        self._update_table_thread.stop_thread()
+        self._ssdp_search_thread.stop_thread()
+        self._old_search_thread.stop_thread()
+        self._notify_search_thread.stop_thread()
+
+        # wait till all threads are stopped
+        while self._update_table_thread.task_in_process() and \
+                self._ssdp_search_thread.task_in_process() and \
+                self._old_search_thread.task_in_process() and \
+                self._notify_search_thread.task_in_process():
+            pass
+
+        self.sock_notify.close()
+
+        # wait till we stops updating table here for not disturbing tkinter
+        if self.window_updating:
+            log.info(f"We are updating the window so please wait...")
+            self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
+
+        """if mb.askokcancel("Quit", "Do you want to quit?"):
             self._destroy_flag.set()
             # close all threads first
             self._update_table_thread.stop_thread()
@@ -269,16 +318,16 @@ class Revealer2:
             # wait till we stops updating table here for not disturbing tkinter
             if self.window_updating:
                 log.warning(f"We are updating the window so please wait...")
-                self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
+                self.root.after(self.UPDATE_TIME_MS, self.destroy_after)"""
 
     def destroy_after(self):
 
         if not self.window_updating:
             # and only after all of this - kill the app
-            log.warning("Now the window can be closed. Bye.")
+            log.info("Now the window can be closed. Bye.")
             self.root.destroy()
         else:
-            log.warning("We are updating the window so please wait...")
+            log.info("We are updating the window so please wait...")
             self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
 
     def print_i(self, string):
@@ -380,33 +429,15 @@ class Revealer2:
     def open_link(self, event=None):
         if event is not None:
             self.event = event
-        tree = self.event.widget  # get the treeview widget
-        if tree.winfo_class() == 'Treeview':
-            region = tree.identify_region(self.event.x, self.event.y)
-            col = tree.identify_column(self.event.x)
-            iid = tree.identify('item', self.event.x, self.event.y)
-            link = tree.item(iid)['values'][2]  # get the link from the selected row
-            tags = tree.item(iid)['tags'][0]
+        label = self.event.widget  # get the label widget
 
-            if event is not None:
-                if region == 'cell' and col == '#3':
-                    if tags == RevealerDeviceTag.LOCAL or tags == RevealerDeviceTag.OLD_LOCAL:
-                        wb.open_new_tab(link)  # open the link in a browser tab
-                    else:
-                        print("Can't open this link.")
-            else:
-                if region == 'cell':
-                    if tags == RevealerDeviceTag.LOCAL or tags == RevealerDeviceTag.OLD_LOCAL:
-                        wb.open_new_tab(link)  # open the link in a browser tab
-                    else:
-                        print("Can't open this link.")
-
-        if tree.winfo_class() == 'Label':
-            if hasattr(tree, 'link') and hasattr(tree, 'tag'):
-                if tree.tag == RevealerDeviceTag.LOCAL or tree.tag == RevealerDeviceTag.OLD_LOCAL:
-                    wb.open_new_tab(tree.link)  # open the link in a browser tab
+        if label.winfo_class() == 'Label':
+            if hasattr(label, 'link') and hasattr(label, 'tag'):
+                if (label.tag == RevealerDeviceTag.LOCAL or label.tag == RevealerDeviceTag.OLD_LOCAL) and \
+                        label['foreground'] == "blue":
+                    wb.open_new_tab(label.link)  # open the link in a browser tab
                 else:
-                    print("Can't open this link.")
+                    log.info(f"Can't open {label.link} link.")
 
     def _listen_and_capture_returned_responses_url(self, sock: socket.socket, devices):
         try:
@@ -414,8 +445,10 @@ class Revealer2:
                 data, addr = sock.recvfrom(8192)
                 data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
                 # if we have not received this location before
-                if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
-                    devices.add(data_dict["ssdp_url"])
+                # if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
+                #     devices.add(data_dict["ssdp_url"])
+                if not data_dict["uuid"] in devices and data_dict["server"] != "":
+                    devices.add(data_dict["uuid"])
                     # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
                     self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr)
         except socket.timeout:
@@ -443,6 +476,8 @@ class Revealer2:
             else:
                 return
 
+            notify_started = False
+
             devices = set()
 
             adapters = ifaddr.get_adapters()
@@ -465,14 +500,17 @@ class Revealer2:
                         continue
 
                     # if ip.ip is suitable for m-search - try to listen for notify messages also
-                    self._notify_search_thread.add_task(self.listen_notify_task, ip.ip)
-
-                    # we need to wait a little bit for notify listen to start on this ip for correct answers receiving
-                    # See #89128.
-                    time.sleep(0.01)
+                    # just ONE time
+                    if not notify_started:
+                        # we need to wait a little bit for notify listen to start on
+                        # this ip for correct answers receiving
+                        # See #89128.
+                        self._notify_search_thread.add_task(self.listen_notify_task, ip.ip)
+                        notify_started = True
+                        time.sleep(0.05)
 
                     # set timeout
-                    sock.settimeout(1)
+                    sock.settimeout(2)
                     try:
                         sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
                     except OSError:
@@ -538,8 +576,8 @@ class Revealer2:
                     else:
                         link = xml_dict["presentationURL"]
                 except KeyError:
-                    xml_dict["presentationURL"] = "None"
-                    link = "http://" + addr[0]
+                    xml_dict["presentationURL"] = '-'
+                    link = addr[0]
 
                 xml_dict["version"] = data_dict["version"]
 
@@ -627,7 +665,6 @@ class Revealer2:
                 ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1]
             else:
                 ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1][1::1]
-            # print(ssdp_dict["location"], addr[0])
             ssdp_dict["ssdp_url"] = addr[0]  # save only IP address
         elif len(words_string) == 4:
             # case with full absolute URL with port specified
@@ -687,7 +724,7 @@ class Revealer2:
                 log.debug(f"We found device with long LOCATION: {ssdp_dict['location']}. "
                           f"And got its URL: {ssdp_dict['ssdp_url']}")
         else:
-            log.warning(f"We have location string from {addr} with URL with incorrect format:"
+            log.info(f"We have location string from {addr} with URL with incorrect format:"
                         f" {string}. We can not get its location and xml-file.")
             ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
 
@@ -918,20 +955,6 @@ class Revealer2:
                 self.change_ip_multicast(uuid, new_settings)
             except ValueError:
                 print(f"Errors in inserted values: {dialog.result}")
-
-    @staticmethod
-    def get_page_title(url):
-        title = ""
-        try:
-            response = urllib.request.urlopen(url, timeout=0.3).read().decode('utf-8')
-
-            # data = response.split('title>')  # we need to get rid of the headers
-            title = response[response.find('<title>') + 7: response.find('</title>')]
-
-            return title
-
-        except urllib.error.URLError:
-            return title
 
     def _listen_and_capture_returned_responses_old(self,
                                                    sock: socket.socket,
@@ -1197,7 +1220,7 @@ class MIPASDialog(sd.Dialog):
         self.update_idletasks()
 
         self.minsize(width=max(device_frame.winfo_width(), frame.winfo_width(), note_frame.winfo_width())+30,
-                     height=(device_frame.winfo_height() + self.note_label.winfo_height() + 50))
+                     height=400)
 
         note_frame.bind('<Configure>', self._configure_canvas)
 
@@ -1354,6 +1377,7 @@ class PropDialog(sd.Dialog):
         label_count = 0
 
         for name in self.dict:
+
             font_style = ''
             cursor = ''
             if self.dict[name] is not None:
@@ -1364,10 +1388,15 @@ class PropDialog(sd.Dialog):
                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
                                 'bold')).grid(column=0, row=row_index, padx=5, sticky='w')
                     label_count += 1
-                    if name == 'presentationURL':
+                    if name == 'presentationURL' and self.dict[name] != '-':
                         text_color = "blue"
                         Label(master, text=self.url, justify=LEFT, cursor=self.pointer_cursor, fg=text_color,
                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline')).grid(
+                            column=1, row=row_index, padx=5, sticky='w')
+                        label_count += 1
+                    elif name == 'presentationURL' and self.dict[name] == '-':
+                        Label(master, text='Presentation web-page is absent', justify=LEFT, fg=text_color,
+                              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'italic')).grid(
                             column=1, row=row_index, padx=5, sticky='w')
                         label_count += 1
                     else:
@@ -1388,10 +1417,8 @@ class PropDialog(sd.Dialog):
         self.update()
         self.update_idletasks()
 
-        print(self.winfo_height())
-
-        self.minsize(width=max(self.winfo_width()*2, 350),
-                     height=label_count*12)
+        self.minsize(width=max(self.winfo_width()*2, 400),
+                     height=label_count*13)
 
         return self
 
