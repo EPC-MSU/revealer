@@ -977,17 +977,6 @@ class Revealer2:
                             self.main_table.add_row_old_item(title, "http://" + addr[0],
                                                              tag=RevealerDeviceTag.OLD_LOCAL)
 
-                    for i in range(40):
-                        if self._destroy_flag.is_set():
-                            sock.close()
-                            return True
-                        with self.main_table.lock:
-                            rand_i = int(random.random() * 40) + i
-                            self._update_table_thread.add_task(self.main_table.add_row_old_item,
-                                                               title + "." + str(rand_i),
-                                                               "http://" + addr[0] + "." + str(rand_i),
-                                                               RevealerDeviceTag.OLD_LOCAL)
-
                     ssdp_device_number += 1
 
         except socket.timeout:

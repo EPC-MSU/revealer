@@ -639,7 +639,7 @@ class RevealerTable:
         alpha_row = row
 
         # find correct color
-        if alpha_row % 2 == 0:
+        if (alpha_row - self.LEGACY_HEADER_ROW + 1) % 2 == 0:
             bg_color = self.EVEN_ROW_COLOR
         else:
             bg_color = DEFAULT_BG_COLOR
