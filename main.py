@@ -20,7 +20,7 @@ import urllib.request
 
 import ast
 import threading
-from thread import ProcessThread
+from thread import ProcessThread, SSDPSearchThread
 import traceback
 
 from version import Version
@@ -167,6 +167,9 @@ class Revealer2:
         # ssdp search thread
         self._ssdp_search_thread = ProcessThread()
         self._ssdp_search_thread.start()
+
+        self._ssdp_threads = SSDPSearchThread()
+
         # legacy search thread
         self._old_search_thread = ProcessThread()
         self._old_search_thread.start()
@@ -183,8 +186,8 @@ class Revealer2:
         # flag of the MIPAS in progress
         self._changing_settings = threading.Event()
 
-        self._ssdp_stop = threading.Event()
-        self._ssdp_stop.set()
+        # self._ssdp_stop = threading.Event()
+        # self._ssdp_stop.set()
 
         # flag indicating that main button state was changed for some process
         self.buttons_state_changed = False
@@ -225,9 +228,10 @@ class Revealer2:
         :return:
         """
 
-        if self._in_process.is_set() or not self._update_table_thread.empty():
+        if self._in_process.is_set() or not self._update_table_thread.empty() or self._ssdp_threads.in_process():
             self.main_table.update_with_rewriting()
             self.table_buttons_state_changed = True
+            self._in_process_after.set()
         elif self._in_process_after.is_set():
             self._in_process_after.clear()
             self.main_table.update_with_rewriting()
@@ -235,7 +239,7 @@ class Revealer2:
         return
 
     def update_buttons(self):
-        if self._in_process.is_set() or not self._update_table_thread.empty():
+        if self._in_process.is_set() or not self._update_table_thread.empty() or self._ssdp_threads.in_process():
             self.button["state"] = "disabled"
             self.button["text"] = "Searching..."
             self.button["cursor"] = ""
@@ -258,7 +262,7 @@ class Revealer2:
             self.buttons_state_changed = False
 
     def update_table_buttons(self):
-        if self._in_process.is_set():
+        if self._in_process.is_set() or self._ssdp_threads.in_process():
             self.table_buttons_state_changed = True
         elif self._changing_settings.is_set():
             self.table_buttons_state_changed = True
@@ -293,11 +297,17 @@ class Revealer2:
         self._old_search_thread.stop_thread()
         self._notify_search_thread.stop_thread()
 
+        self._ssdp_threads.stop_all()
+
         # wait till all threads are stopped
         while self._update_table_thread.task_in_process() or \
                 self._ssdp_search_thread.task_in_process() or \
                 self._old_search_thread.task_in_process() or \
-                self._notify_search_thread.task_in_process() or not self._ssdp_stop.is_set():
+                self._notify_search_thread.task_in_process():
+            log.warning(f"We are wainting for threads to stop running... {self._update_table_thread.task_in_process()} or \
+                {self._ssdp_search_thread.task_in_process()} or \
+                {self._old_search_thread.task_in_process()} or \
+                {self._notify_search_thread.task_in_process()}")
             pass
 
         # close notify socket
@@ -305,7 +315,7 @@ class Revealer2:
 
         # wait till we stops updating table here for not disturbing tkinter
         if self.window_updating:
-            log.info(f"We are updating the window so please wait...")
+            log.warning(f"We are updating the window so please wait...")
             self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
 
     def destroy_after(self):
@@ -317,10 +327,10 @@ class Revealer2:
 
         if not self.window_updating:
             # and only after all of this - kill the app
-            log.info("Now the window can be closed. Bye.")
+            log.warning("Now the window can be closed. Bye.")
             self.root.destroy()
         else:
-            log.info("We are updating the window so please wait...")
+            log.warning("We are updating the window so please wait...")
             self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
 
     def print_i(self, string):
@@ -428,17 +438,17 @@ class Revealer2:
                 else:
                     log.info(f"Can't open {label.link} link.")
 
-    def _listen_and_capture_returned_responses_url(self, sock: socket.socket, devices):
-        while not self._destroy_flag.is_set() and not self._ssdp_stop.is_set():
+    def _listen_and_capture_returned_responses_url(self, sock: socket.socket, timer_stop_event):
+        while not self._destroy_flag.is_set() and not timer_stop_event.is_set():
             try:
-                while not self._destroy_flag.is_set() and not self._ssdp_stop.is_set():
+                while not self._destroy_flag.is_set() and not timer_stop_event.is_set():
                     data, addr = sock.recvfrom(8192)
                     data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
                     # if we have not received this location before
                     # if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
                     #     devices.add(data_dict["ssdp_url"])
-                    if not data_dict["uuid"] in devices and data_dict["server"] != "":
-                        devices.add(data_dict["uuid"])
+                    if data_dict["server"] != "":
+                        # devices.add(data_dict["uuid"])
                         # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
                         self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr)
             except socket.timeout:
@@ -446,30 +456,10 @@ class Revealer2:
             except OSError:
                 break
 
-        self._notify_stop_flag = True
+        # self._notify_stop_flag = True
         sock.close()
 
-    def ssdp_timer_task(self):
-        """
-        Thread task for timer for ssdp search.
-        :return:
-        """
-        # ssdp timer is divided in two parts for more fast closing
-        if not self._destroy_flag.is_set():
-            time.sleep(1.25)
-        if not self._destroy_flag.is_set():
-            time.sleep(1.25)
-        self._ssdp_stop.set()
-
     def ssdp_search_task(self):
-        # M-Search message body
-        message = \
-            'M-SEARCH * HTTP/1.1\r\n' \
-            'HOST:239.255.255.250:1900\r\n' \
-            'ST:upnp:rootdevice\r\n' \
-            'MX:2\r\n' \
-            'MAN:"ssdp:discover"\r\n' \
-            '\r\n'
 
         try:
             if not self._destroy_flag.is_set():
@@ -483,6 +473,11 @@ class Revealer2:
             devices = set()
 
             adapters = ifaddr.get_adapters()
+
+            self._ssdp_threads.delete_all()
+            self._ssdp_threads.add_adapters(adapters)
+
+            index = 0
 
             for adapter in adapters:
                 for ip in adapter.ips:
@@ -499,11 +494,14 @@ class Revealer2:
                     try:
                         sock.bind((ip.ip, 0))
                     except Exception:
+                        index += 1
                         continue
 
                     # if ip.ip is suitable for m-search - try to listen for notify messages also
                     # just ONE time
                     if not notify_started:
+                        # set notify flag to make that process know that it need to listen answers
+                        self._ssdp_threads.start_notify()
                         # we need to wait a little bit for notify listen to start on
                         # this ip for correct answers receiving
                         # See #89128.
@@ -511,19 +509,16 @@ class Revealer2:
                         notify_started = True
                         time.sleep(0.05)
 
-                    # set timeout
-                    sock.settimeout(0.05)
-                    self._ssdp_stop.clear()
-                    try:
-                        sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
-                        timer = threading.Thread(target=self.ssdp_timer_task)
-                        timer.start()
-                    except OSError:
-                        continue
+                    log.warning(f"we are adding new search task")
 
-                    self._listen_and_capture_returned_responses_url(sock, devices)
+                    self._ssdp_threads[index].add_task(self.ssdp_search_adapter_task, sock,
+                                                       self._ssdp_threads[index].stop_flag)
+
+                    index += 1
 
             self._in_process.clear()
+            # set notify flag to false so notify thread will stop when all ssdp searches are finished
+            self._ssdp_threads.stop_notify()
 
         except Exception:
             except_info = traceback.format_exc()
@@ -535,6 +530,25 @@ class Revealer2:
             self.show_info()
 
         return
+
+    def ssdp_search_adapter_task(self, sock, timer_stop_event):
+        # M-Search message body
+        message = \
+            'M-SEARCH * HTTP/1.1\r\n' \
+            'HOST:239.255.255.250:1900\r\n' \
+            'ST:upnp:rootdevice\r\n' \
+            'MX:2\r\n' \
+            'MAN:"ssdp:discover"\r\n' \
+            '\r\n'
+
+        # set timeout
+        sock.settimeout(0.05)
+        timer_stop_event.clear()
+        try:
+            sock.sendto(message.encode('utf-8'), ("239.255.255.250", 1900))
+            self._listen_and_capture_returned_responses_url(sock, timer_stop_event)
+        except OSError:
+            pass
 
     def add_new_item_task(self, data_dict, addr, notify_flag=False):
 
@@ -623,24 +637,31 @@ class Revealer2:
             pass
 
         # we are starting the task so flag should be False
-        self._notify_stop_flag = False
+        # self._notify_stop_flag = False
 
-        # listen and capture returned responses
-        try:
-            while not self._notify_stop_flag and not self._destroy_flag.is_set():
-                data, addr = self.sock_notify.recvfrom(8192)
-                data_strings = data.decode('utf-8').split('\r\n')
+        self.sock_notify.settimeout(0.1)
 
-                if data_strings[0] == 'NOTIFY * HTTP/1.1':
-                    data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
+        log.warning("start notify")
 
-                    # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr, True]).start()
-                    self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr, True)
+        while self._ssdp_threads.in_process() and not self._destroy_flag.is_set():
+            # listen and capture returned responses
+            try:
+                while self._ssdp_threads.in_process() and not self._destroy_flag.is_set():
+                    data, addr = self.sock_notify.recvfrom(8192)
+                    data_strings = data.decode('utf-8').split('\r\n')
 
-        except socket.timeout:
-            pass
-        except OSError:
-            pass
+                    if data_strings[0] == 'NOTIFY * HTTP/1.1':
+                        data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
+
+                        # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr, True]).start()
+                        self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr, True)
+
+            except socket.timeout:
+                pass
+            except OSError:
+                break
+
+        log.warning("stop notify")
 
     def _parse_ssdp_header_server(self, string, ssdp_dict) -> None:
         words_string = string.split(' ')
@@ -977,6 +998,17 @@ class Revealer2:
                             self.main_table.add_row_old_item(title, "http://" + addr[0],
                                                              tag=RevealerDeviceTag.OLD_LOCAL)
 
+                    """for i in range(40):
+                        if self._destroy_flag.is_set():
+                            sock.close()
+                            return True
+                        with self.main_table.lock:
+                            rand_i = int(random.random() * 40) + i
+                            self._update_table_thread.add_task(self.main_table.add_row_old_item,
+                                                               title + "." + str(rand_i),
+                                                               "http://" + addr[0] + "." + str(rand_i),
+                                                               RevealerDeviceTag.OLD_LOCAL)"""
+
                     ssdp_device_number += 1
 
         except socket.timeout:
@@ -1061,10 +1093,8 @@ class MIPASDialog(sd.Dialog):
     ENTRY_STATE_DISABLED = "disabled"
     ENTRY_STATE_NORMAL = "normal"
 
-    USER_NOTE_TEXT = "\nNote: this is a service low-level interface for changing the network settings of the device" \
-                     " in another subnet." \
-                     "\nThe main configuration method is the web interface where " \
-                     "all device information and its current network settings are provided."
+    USER_NOTE_TEXT = "\nNote: this is a service fall-back interface for device network access recovery." \
+                     "\nClick on URL for recommended network administration page if possible. ??"
 
     def __init__(self, title, device, uuid,
                  initialvalue=None,
