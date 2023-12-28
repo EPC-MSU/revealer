@@ -815,7 +815,6 @@ class Revealer2:
         self.info = ""
 
         # start process for changing settings in another thread
-        # TODO: maybe we need different proccess thread for this changing
         self._ssdp_search_thread.add_task(self.change_ip_multicast_task, uuid, settings_dict)
 
     def _listen_and_capture_returned_responses_location(self, sock: socket.socket, devices, uuid) -> bool:
@@ -859,9 +858,8 @@ class Revealer2:
         if len(devices) > 0:
             mb.showinfo(
                 "Change settings...",
-                "Success.\nNew settings were applied.\nPlease update the list of "
-                "the devices by clicking the Search button "
-                "to find this device with the new IP address.",
+                "Success.\nNew settings were applied.\nPlease refresh the list of "
+                "the devices by clicking the Search button.",
                 parent=self.root
             )
         else:
@@ -1281,10 +1279,10 @@ class MIPASDialog(sd.Dialog):
         if self.check_format(result_ip['netmask'], self.NET_MASK_RE):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
-            warning_msg += "\nNetwork Mask format is incorrect.\nMost likely you need Network Mask 255.255.0.0 or " \
-                           "255.255.255.0.\nIf these are not the masks that you need check the list of " \
-                           "the possible network masks values " \
-                           "on the Internet and insert it in the format of #.#.#.#, where # stands for a number."
+            warning_msg += "Network Mask format is incorrect.\nMost likely you need Network Mask 255.255.0.0 or " \
+                           "255.255.255.0.\nIf these are't the masks you need, check " \
+                           "possible network mask values " \
+                           "on the Internet and insert it in the format of #.#.#.#."
         if result_ip['gateway'] != '' and self.check_format(result_ip['gateway'], self.IP_ADDRESS_RE):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
@@ -1316,8 +1314,8 @@ class MIPASDialog(sd.Dialog):
         if result_ip['dhcp'] == 0 and (result_ip['ip'] == '' or result_ip['netmask'] == ''):
             mb.showwarning(
                 "Warning",
-                "\nPlease insert the new IP address and the Network Mask or choose the DHCP mode "
-                "for the IP configuration.",
+                "\nPlease insert an IP-address and a Network Mask or choose the DHCP mode "
+                "for the network configuration.",
                 parent=self
             )
             return 0
