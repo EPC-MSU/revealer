@@ -3,10 +3,9 @@ import re
 import logging as log
 
 import time
-import random
 
-from tkinter import Tk, Frame, Label, Canvas, PhotoImage, LabelFrame, TclError, HORIZONTAL, VERTICAL, LEFT, Entry, \
-    Checkbutton, Button, ACTIVE, END, IntVar, Toplevel
+from tkinter import Tk, Frame, Label, PhotoImage, LabelFrame, TclError, LEFT, Entry, \
+    Checkbutton, Button, ACTIVE, IntVar, Toplevel
 from tkinter import ttk, font
 import tkinter.messagebox as mb
 import tkinter.simpledialog as sd
@@ -25,7 +24,7 @@ import traceback
 
 from version import Version
 from revealertable import RevealerTable
-from revealerdevice import RevealerDeviceTag, RevealerDeviceType
+from revealerdevice import RevealerDeviceTag
 
 DEFAULT_TEXT_COLOR = "black"
 CURSOR_POINTER = "hand2"
@@ -280,6 +279,13 @@ class Revealer2:
         # create window with closing information
         popup = Toplevel()
         popup.grab_set()
+        # add revealer icon
+        try:
+            popup.iconphoto(False, PhotoImage(file=os.path.join(os.path.dirname(__file__),
+                                                                "resources/appicon.png")))
+        except Exception:
+            pass
+
         popup_label = Label(popup, text="Revealer is closing. Please wait, it may take some time...")
         popup_label.grid(column=0, row=0, sticky="news")
         popup_label.grid_configure(padx=15, pady=15)
@@ -288,6 +294,7 @@ class Revealer2:
         # update this window
         popup.update()
         self.root.update_idletasks()
+        # popup.resizable(False, False)
 
         # set destroying flag
         self._destroy_flag.set()
@@ -304,10 +311,6 @@ class Revealer2:
                 self._ssdp_search_thread.task_in_process() or \
                 self._old_search_thread.task_in_process() or \
                 self._notify_search_thread.task_in_process():
-            log.warning(f"We are wainting for threads to stop running... {self._update_table_thread.task_in_process()} or \
-                {self._ssdp_search_thread.task_in_process()} or \
-                {self._old_search_thread.task_in_process()} or \
-                {self._notify_search_thread.task_in_process()}")
             pass
 
         # close notify socket
@@ -315,7 +318,7 @@ class Revealer2:
 
         # wait till we stops updating table here for not disturbing tkinter
         if self.window_updating:
-            log.warning(f"We are updating the window so please wait...")
+            log.info("We are updating the window so please wait...")
             self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
 
     def destroy_after(self):
@@ -327,10 +330,10 @@ class Revealer2:
 
         if not self.window_updating:
             # and only after all of this - kill the app
-            log.warning("Now the window can be closed. Bye.")
+            log.info("Now the window can be closed. Bye.")
             self.root.destroy()
         else:
-            log.warning("We are updating the window so please wait...")
+            log.info("We are updating the window so please wait...")
             self.root.after(self.UPDATE_TIME_MS, self.destroy_after)
 
     def print_i(self, string):
@@ -445,18 +448,13 @@ class Revealer2:
                     data, addr = sock.recvfrom(8192)
                     data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
                     # if we have not received this location before
-                    # if not data_dict["ssdp_url"] in devices and data_dict["server"] != "":
-                    #     devices.add(data_dict["ssdp_url"])
                     if data_dict["server"] != "":
-                        # devices.add(data_dict["uuid"])
-                        # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr]).start()
                         self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr)
             except socket.timeout:
                 pass
             except OSError:
                 break
 
-        # self._notify_stop_flag = True
         sock.close()
 
     def ssdp_search_task(self):
@@ -469,8 +467,6 @@ class Revealer2:
                 return
 
             notify_started = False
-
-            devices = set()
 
             adapters = ifaddr.get_adapters()
 
@@ -509,8 +505,8 @@ class Revealer2:
                         notify_started = True
                         time.sleep(0.05)
 
-                    log.warning(f"we are adding new search task")
-
+                    # adding search task for this ip on this adapter
+                    self._ssdp_threads[index].start()
                     self._ssdp_threads[index].add_task(self.ssdp_search_adapter_task, sock,
                                                        self._ssdp_threads[index].stop_flag)
 
@@ -525,7 +521,6 @@ class Revealer2:
             self.print_i(f"Unhandled exception occurred while performing SSDP search:\n{except_info}")
 
         # show info from search if we had some important information (exceptions with errors)
-        # TODO: move to the update window method ??
         if not self._destroy_flag.is_set():
             self.show_info()
 
@@ -550,42 +545,49 @@ class Revealer2:
         except OSError:
             pass
 
+    def _get_uuid_of_found(self, data_dict):
+        """
+        Check if this device is our enhanced device with correct version.
+
+        :return:
+        """
+
+        device_index_in_list = self.find_ssdp_enhanced_device(data_dict["server"])
+
+        if device_index_in_list is not None:
+            version_with_settings = \
+                self.SSDP_ENHANCED_DEVICES[device_index_in_list].enhanced_ssdp_support_min_fw
+            uuid = data_dict["uuid"]
+
+            # we need to check that if we have our device it supports setting settings via multicast
+            if version_with_settings != "":
+                version_with_settings_array = [int(num) for num in version_with_settings.split('.')]
+                current_version = data_dict["version"].split('.')
+                current_version_array = [int(num) for num in current_version]
+
+                # check that we have version greater than this
+                if current_version_array[0] < version_with_settings_array[0]:
+                    uuid = ""
+                elif current_version_array[1] < version_with_settings_array[1]:
+                    uuid = ""
+                elif current_version_array[2] < version_with_settings_array[2]:
+                    uuid = ""
+
+        else:
+            uuid = None
+
+        return uuid
+
     def add_new_item_task(self, data_dict, addr, notify_flag=False):
 
         try:
             xml_dict = self.parse_upnp_xml(data_dict["location"])
 
-            # check is this our device or not
-            version_with_settings = ""
+            uuid = self._get_uuid_of_found(data_dict)
 
-            device_index_in_list = self.find_ssdp_enhanced_device(data_dict["server"])
-
-            if device_index_in_list is not None:
-                version_with_settings = \
-                    self.SSDP_ENHANCED_DEVICES[device_index_in_list].enhanced_ssdp_support_min_fw
-                uuid = data_dict["uuid"]
-
-                # we need to check that if we have our device it supports setting settings via multicast
-                if version_with_settings != "":
-                    version_with_settings_array = [int(num) for num in version_with_settings.split('.')]
-                    current_version = data_dict["version"].split('.')
-                    current_version_array = [int(num) for num in current_version]
-
-                    # check that we have version greater than this
-                    if current_version_array[0] < version_with_settings_array[0]:
-                        uuid = ""
-                    elif current_version_array[1] < version_with_settings_array[1]:
-                        uuid = ""
-                    elif current_version_array[2] < version_with_settings_array[2]:
-                        uuid = ""
-
-            else:
-                if not notify_flag:
-                    uuid = None
-                    pass
-                else:
-                    # if this is not our device - we don't need its notify message
-                    return
+            if uuid is None and notify_flag:
+                # we don't need not our device from notify
+                return
 
             if xml_dict is not None:
                 # check that we have our url with correct format
@@ -602,14 +604,12 @@ class Revealer2:
 
                 if not self._destroy_flag.is_set():
                     with self.main_table.lock:
-                        # self.main_table.move_table_rows(self.main_table.last_row)
                         self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
                                                           link, data_dict["ssdp_url"], uuid, xml_dict,
                                                           tag=RevealerDeviceTag.LOCAL)
             else:
                 if not self._destroy_flag.is_set():
                     with self.main_table.lock:
-                        # self.main_table.move_table_rows(self.main_table.last_row)
                         self.main_table.add_row_ssdp_item(data_dict["server"],
                                                           data_dict["ssdp_url"], data_dict["ssdp_url"],
                                                           uuid, data_dict, tag=RevealerDeviceTag.NOT_LOCAL)
@@ -636,12 +636,7 @@ class Revealer2:
         except OSError:
             pass
 
-        # we are starting the task so flag should be False
-        # self._notify_stop_flag = False
-
         self.sock_notify.settimeout(0.1)
-
-        log.warning("start notify")
 
         while self._ssdp_threads.in_process() and not self._destroy_flag.is_set():
             # listen and capture returned responses
@@ -653,15 +648,12 @@ class Revealer2:
                     if data_strings[0] == 'NOTIFY * HTTP/1.1':
                         data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
 
-                        # threading.Thread(target=self.add_new_item_task, args=[data_dict, addr, True]).start()
                         self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr, True)
 
             except socket.timeout:
                 pass
             except OSError:
                 break
-
-        log.warning("stop notify")
 
     def _parse_ssdp_header_server(self, string, ssdp_dict) -> None:
         words_string = string.split(' ')
@@ -699,7 +691,7 @@ class Revealer2:
                     ' ':  # we should check if we have ' ' here and not take it to the location string
                 ssdp_dict["location"] = words_string[1] + ':' + words_string[2] + ':' + words_string[3]
             else:
-                ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' +\
+                ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' + \
                                         words_string[3]
             ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
         elif len(words_string) == 3:
@@ -717,44 +709,46 @@ class Revealer2:
             else:
                 ssdp_dict["ssdp_url"] = addr
         elif len(words_string) > 4:
+            self._parse_ssdp_header_location_len_4(words_string=words_string, ssdp_dict=ssdp_dict, addr=addr)
 
-            # check that it is absolute address:
-            try:
-                http_index = words_string[1].index('http')
-            except ValueError:
-                http_index = -1
-                log.debug(f"We have location string from {addr} with URL with incorrect format:"
-                          f" {string}. We can not get its location and xml-file.")
-                ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
-
-            log.debug(f"We found device http_index = {http_index} with long LOCATION: {words_string}")
-
-            if http_index >= 0:
-                if words_string[1][0] != \
-                        ' ':  # we should check if we have ' ' here and not take it to the location string
-                    ssdp_dict["location"] = words_string[1]
-
-                    for i in range(len(words_string)-2):
-                        ssdp_dict["location"] += ':' + words_string[i+2]
-                else:
-                    ssdp_dict["location"] = words_string[1][1::1]
-                    for i in range(len(words_string)-2):
-                        ssdp_dict["location"] += ':' + words_string[i+2]
-                url_parts = ssdp_dict["location"].split("/")
-                # save only IP address (third in //172.16.130.67/Basic_info.xml splitted with '/')
-                if len(url_parts) >= 3:
-                    ssdp_dict["ssdp_url"] = url_parts[2].split(':')[0]
-                else:
-                    ssdp_dict["ssdp_url"] = addr
-
-                log.debug(f"We found device with long LOCATION: {ssdp_dict['location']}. "
-                          f"And got its URL: {ssdp_dict['ssdp_url']}")
         else:
             log.info(f"We have location string from {addr} with URL with incorrect format:"
                      f" {string}. We can not get its location and xml-file.")
             ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
 
-    def _parse_ssdp_headeer_usn(self, string, ssdp_dict, addr) -> None:
+    def _parse_ssdp_header_location_len_4(self, words_string, ssdp_dict, addr):
+
+        # check that it is absolute address:
+        try:
+            http_index = words_string[1].index('http')
+        except ValueError:
+            http_index = -1
+            ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
+
+        log.debug(f"We found device http_index = {http_index} with long LOCATION: {words_string}")
+
+        if http_index >= 0:
+            if words_string[1][0] != \
+                    ' ':  # we should check if we have ' ' here and not take it to the location string
+                ssdp_dict["location"] = words_string[1]
+
+                for i in range(len(words_string) - 2):
+                    ssdp_dict["location"] += ':' + words_string[i + 2]
+            else:
+                ssdp_dict["location"] = words_string[1][1::1]
+                for i in range(len(words_string) - 2):
+                    ssdp_dict["location"] += ':' + words_string[i + 2]
+            url_parts = ssdp_dict["location"].split("/")
+            # save only IP address (third in //172.16.130.67/Basic_info.xml splitted with '/')
+            if len(url_parts) >= 3:
+                ssdp_dict["ssdp_url"] = url_parts[2].split(':')[0]
+            else:
+                ssdp_dict["ssdp_url"] = addr
+
+            log.debug(f"We found device with long LOCATION: {ssdp_dict['location']}. "
+                      f"And got its URL: {ssdp_dict['ssdp_url']}")
+
+    def _parse_ssdp_header_usn(self, string, ssdp_dict, addr) -> None:
         words_string = string.split(':')  # do this again for symmetry
         try:
             ssdp_dict["uuid"] = words_string[2]
@@ -782,7 +776,7 @@ class Revealer2:
                     elif words_string[0].lower() == \
                             Revealer2.SSDP_HEADER_USN:
                         # USN: uuid:40001d0a-0000-0000-8e31-4010900b00c8::upnp:rootdevice
-                        self._parse_ssdp_headeer_usn(string, ssdp_dict, addr)
+                        self._parse_ssdp_header_usn(string, ssdp_dict, addr)
         except Exception:
             except_info = traceback.format_exc()
             self.print_i(f"Error in parsing {addr} SSDP data:\n{except_info}")
@@ -951,10 +945,14 @@ class Revealer2:
             adapters = ifaddr.get_adapters()
 
             for adapter in adapters:
+                if self._destroy_flag.is_set():
+                    break
                 if len(devices) > 0:
                     break
                 self._change_ips_of_adapter(adapter, message, devices, uuid)
-            self._show_change_settings_info(devices)
+
+            if not self._destroy_flag.is_set():
+                self._show_change_settings_info(devices)
 
             self._changing_settings.clear()
         except Exception:
@@ -962,7 +960,8 @@ class Revealer2:
             self.print_i(f"Unhandled error while setting device network settings:\n{except_info}")
 
         # show window with errors if there were any
-        self.show_info()
+        if not self._destroy_flag.is_set():
+            self.show_info()
 
     def change_ip_click(self, name, uuid, link):
         """
@@ -1093,8 +1092,8 @@ class MIPASDialog(sd.Dialog):
     ENTRY_STATE_DISABLED = "disabled"
     ENTRY_STATE_NORMAL = "normal"
 
-    USER_NOTE_TEXT = "\nNote: this is a service fall-back interface for device network access recovery." \
-                     "\nClick on URL for recommended network administration page if possible. ??"
+    USER_NOTE_TEXT = "\nNote: this is a service fallback interface for device network access recovery." \
+                     "\nClick on URL for recommended network administration page if active."
 
     def __init__(self, title, device, uuid,
                  initialvalue=None,
@@ -1159,6 +1158,13 @@ class MIPASDialog(sd.Dialog):
         sd.Dialog.destroy(self)
 
     def body(self, master):
+
+        # add revealer icon
+        try:
+            self.iconphoto(False, PhotoImage(file=os.path.join(os.path.dirname(__file__),
+                                                               "resources/appicon.png")))
+        except Exception:
+            pass
 
         device_frame = Frame(master)
         device_frame.grid(row=0, column=0, sticky='news')
@@ -1235,14 +1241,17 @@ class MIPASDialog(sd.Dialog):
         note_frame.grid(row=3, column=0, sticky='news')
 
         self.note_label = Label(note_frame, text=self.USER_NOTE_TEXT, justify=LEFT,
-              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'italic'), wraplength=100)
+                                font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'italic'),
+                                wraplength=100)
         self.note_label.grid(column=0, row=0, padx=5, sticky='we')
 
         self.update()
         self.update_idletasks()
 
-        self.minsize(width=max(device_frame.winfo_width(), frame.winfo_width(), note_frame.winfo_width())+30,
-                     height=400)
+        # self.minsize(width=max(device_frame.winfo_width(), frame.winfo_width(), note_frame.winfo_width()) + 30,
+        #             height=400)
+
+        self.resizable(False, False)
 
         note_frame.bind('<Configure>', self._configure_canvas)
 
@@ -1394,6 +1403,13 @@ class PropDialog(sd.Dialog):
 
     def body(self, master):
 
+        # add revealer icon
+        try:
+            self.iconphoto(False, PhotoImage(file=os.path.join(os.path.dirname(__file__),
+                                                               "resources/appicon.png")))
+        except Exception:
+            pass
+
         row_index = 0
 
         label_count = 0
@@ -1439,8 +1455,10 @@ class PropDialog(sd.Dialog):
         self.update()
         self.update_idletasks()
 
-        self.minsize(width=max(self.winfo_width()*2, 400),
-                     height=label_count*13)
+        # self.minsize(width=max(self.winfo_width() * 2, 400),
+        #             height=label_count * 13)
+
+        self.resizable(False, False)
 
         return self
 

@@ -1,5 +1,6 @@
 import logging as log
 
+
 class RevealerDeviceType:
     OUR = 0
     OTHER = 1
@@ -214,4 +215,3 @@ class RevealerDeviceList:
             alpha_row = sorted_list.index(name) + 1  # + len(self.ssdp_devices) + 3
 
             return alpha_row
-
