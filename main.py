@@ -1280,7 +1280,7 @@ class MIPASDialog(sd.Dialog):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
             warning_msg += "Network Mask format is incorrect.\nMost likely you need Network Mask 255.255.0.0 or " \
-                           "255.255.255.0.\nIf these are't the masks you need, check " \
+                           "255.255.255.0.\nIf these aren't the mask you need, check " \
                            "possible network mask values " \
                            "on the Internet and insert it in the format of #.#.#.#."
         if result_ip['gateway'] != '' and self.check_format(result_ip['gateway'], self.IP_ADDRESS_RE):
@@ -1314,7 +1314,7 @@ class MIPASDialog(sd.Dialog):
         if result_ip['dhcp'] == 0 and (result_ip['ip'] == '' or result_ip['netmask'] == ''):
             mb.showwarning(
                 "Warning",
-                "\nPlease insert an IP-address and a Network Mask or choose the DHCP mode "
+                "\nPlease insert an IP address and a Network Mask or choose the DHCP mode "
                 "for the network configuration.",
                 parent=self
             )
