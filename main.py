@@ -31,6 +31,11 @@ CURSOR_POINTER = "hand2"
 CURSOR_POINTER_MACOS = "pointinghand"
 DEFAULT_BG_COLOR = "white"
 
+URL_REGEX_PORT = "https?:\/\/((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\.?\\b){4}:\\d{1,5}"
+URL_REGEX_WITHOUT_PORT = "https?:\/\/((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\.?\\b){4}"
+IP_ADDRES_REGEX = "((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\.?\\b){4}"
+PORT_REGEX = ":\\d{1,5}"
+
 
 def center(win):
     """
@@ -278,6 +283,8 @@ class Revealer2:
 
         # create window with closing information
         popup = Toplevel()
+        # TODO: do we need to his _ X for this window ?
+        # popup.overrideredirect(True)
         popup.grab_set()
         # add revealer icon
         try:
@@ -593,8 +600,11 @@ class Revealer2:
                 # check that we have our url with correct format
                 try:
                     if xml_dict["presentationURL"][0:4] != "http":
-                        link = "http://" + addr[0] + xml_dict["presentationURL"]
+                        # TODO: remove commented code
+                        # link = "http://" + addr[0] + xml_dict["presentationURL"]
+                        link = data_dict["location_url"] + xml_dict["presentationURL"]
                     else:
+                        # from the XML-description we should get relative URL but if we have absolute - use absolute
                         link = xml_dict["presentationURL"]
                 except KeyError:
                     xml_dict["presentationURL"] = '-'
@@ -668,85 +678,52 @@ class Revealer2:
         except IndexError:
             ssdp_dict["version"] = '-'
 
+    @staticmethod
+    def _parse_location_url(string):
+        m = re.search(URL_REGEX_PORT, string)
+
+        try:
+            url_raw = m.group()
+            rest_data = string[len(url_raw):]
+            ip_address = (re.search(IP_ADDRES_REGEX, url_raw)).group()
+            port = (re.search(PORT_REGEX, url_raw)).group()
+            return ip_address, port[1::1], rest_data
+        except AttributeError:
+            # try get url without port
+            m = re.search(URL_REGEX_WITHOUT_PORT, string)
+            try:
+                url_raw = m.group()
+                rest_data = string[len(url_raw):]
+                ip_address = (re.search(IP_ADDRES_REGEX, url_raw)).group()
+                return ip_address, None, rest_data
+            except AttributeError:
+                return None, None, string
+
     def _parse_ssdp_header_location(self, string, ssdp_dict, addr) -> None:
-        words_string = string.split(':')  # do this again for symmetry
-        if len(words_string) == 2:
-            # if in words_string we only have LOCATION and second element without any : in it
-            # this means we have invalid LOCATION URL -
-            # relative but UPnP standards require absolute URL.
+        # get only field value:
+
+        field_name = re.match("location:\s*", string.lower()).group()
+        value_string = string[len(field_name):]
+
+        ip_address, port, xml_raw = self._parse_location_url(value_string)
+
+        if ip_address is not None and port is not None:
+            # we have correct absolute location - save it as location
+            ssdp_dict["location"] = value_string
+        elif ip_address is not None and port is None:
+            # if we don't have port specification
+            ssdp_dict['location'] = 'http://' + ip_address + ":80" + xml_raw
+        else:
+            # if we are here it means we have an invalid LOCATION URL -
+            # relative one but UPnP standards require an absolute URL.
             # See https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf
             # on pages 29 and 41 for LOCATION header format
             #
             # Nevertheless we are trying to get xml-file for this devices with address
-            if words_string[1][0] != \
-                    ' ':  # we should check if we have ' ' here and not take it to the location string
-                ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1]
-            else:
-                ssdp_dict["location"] = 'http://' + addr[0] + ":80" + words_string[1][1::1]
-            ssdp_dict["ssdp_url"] = addr[0]  # save only IP address
-        elif len(words_string) == 4:
-            # case with full absolute URL with port specified
-            # for example: http://172.16.130.67:80/Basic_info.xml
-            if words_string[1][0] != \
-                    ' ':  # we should check if we have ' ' here and not take it to the location string
-                ssdp_dict["location"] = words_string[1] + ':' + words_string[2] + ':' + words_string[3]
-            else:
-                ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2] + ':' + \
-                                        words_string[3]
-            ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
-        elif len(words_string) == 3:
-            # case with absolute URL without port specified
-            # for example: http://172.16.130.67/Basic_info.xml
-            if words_string[1][0] != \
-                    ' ':  # we should check if we have ' ' here and not take it to the location string
-                ssdp_dict["location"] = words_string[1] + ':' + words_string[2]
-            else:
-                ssdp_dict["location"] = words_string[1][1::1] + ':' + words_string[2]
-            url_parts = words_string[2].split("/")
-            # save only IP address (third in //172.16.130.67/Basic_info.xml splitted with '/')
-            if len(url_parts) >= 3:
-                ssdp_dict["ssdp_url"] = url_parts[2]
-            else:
-                ssdp_dict["ssdp_url"] = addr
-        elif len(words_string) > 4:
-            self._parse_ssdp_header_location_len_4(words_string=words_string, ssdp_dict=ssdp_dict, addr=addr)
+            ssdp_dict['location'] = 'http://' + addr[0] + ":80" + xml_raw
 
-        else:
-            log.info(f"We have location string from {addr} with URL with incorrect format:"
-                     f" {string}. We can not get its location and xml-file.")
-            ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
-
-    def _parse_ssdp_header_location_len_4(self, words_string, ssdp_dict, addr):
-
-        # check that it is absolute address:
-        try:
-            http_index = words_string[1].index('http')
-        except ValueError:
-            http_index = -1
-            ssdp_dict["ssdp_url"] = words_string[2][2::1]  # save only IP address
-
-        log.debug(f"We found device http_index = {http_index} with long LOCATION: {words_string}")
-
-        if http_index >= 0:
-            if words_string[1][0] != \
-                    ' ':  # we should check if we have ' ' here and not take it to the location string
-                ssdp_dict["location"] = words_string[1]
-
-                for i in range(len(words_string) - 2):
-                    ssdp_dict["location"] += ':' + words_string[i + 2]
-            else:
-                ssdp_dict["location"] = words_string[1][1::1]
-                for i in range(len(words_string) - 2):
-                    ssdp_dict["location"] += ':' + words_string[i + 2]
-            url_parts = ssdp_dict["location"].split("/")
-            # save only IP address (third in //172.16.130.67/Basic_info.xml splitted with '/')
-            if len(url_parts) >= 3:
-                ssdp_dict["ssdp_url"] = url_parts[2].split(':')[0]
-            else:
-                ssdp_dict["ssdp_url"] = addr
-
-            log.debug(f"We found device with long LOCATION: {ssdp_dict['location']}. "
-                      f"And got its URL: {ssdp_dict['ssdp_url']}")
+        ssdp_dict["ssdp_url"] = addr[0]
+        ssdp_dict["location_url"] = re.match(URL_REGEX_PORT, value_string.lower()).group()
 
     def _parse_ssdp_header_usn(self, string, ssdp_dict, addr) -> None:
         words_string = string.split(':')  # do this again for symmetry
@@ -759,7 +736,7 @@ class Revealer2:
                          f"\n{except_info}")
 
     def parse_ssdp_data(self, ssdp_data, addr):
-        ssdp_dict = {"server": "", "version": "", "location": "", "ssdp_url": "", "uuid": ""}
+        ssdp_dict = {"server": "", "version": "", "location": "", "ssdp_url": "", "uuid": "", "location_url": ""}
         ssdp_strings = ssdp_data.split("\r\n")
 
         try:
@@ -1453,9 +1430,6 @@ class PropDialog(sd.Dialog):
         self.update()
         self.update_idletasks()
 
-        # self.minsize(width=max(self.winfo_width() * 2, 400),
-        #             height=label_count * 13)
-
         self.resizable(False, False)
 
         return self
@@ -1506,7 +1480,7 @@ class PropDialog(sd.Dialog):
 
 
 if __name__ == '__main__':
-    print("Start Revealer 2... Version " + Version.full + ".")
+    print("Starting Revealer... Version " + Version.full + ".")
 
     app = Revealer2()
     app.root.protocol("WM_DELETE_WINDOW", app.on_closing)
