@@ -45,13 +45,78 @@ class ProcessThread(threading.Thread):
         self._running = False
 
 
+class AddDeviceThread(ProcessThread):
+    """
+    Base class for adding a task for parsing new device found.
+
+    """
+
+    def run(self) -> None:
+        while self._running:
+            self._task_in_process.set()
+            if self._task_queue.empty():
+                self._task_in_process.clear()
+                time.sleep(0.005)
+                continue
+            task = self._task_queue.get()
+            if not self._running:
+                self._task_in_process.clear()
+                return
+            task()
+            self._task_in_process.clear()
+            self.stop_thread()  # it is one time thread
+
+
+class ParseDevicesThread:
+    """
+    Base class for adding threads for parsing task for the devices found.
+
+    """
+
+    def __init__(self):
+
+        self._threads = []
+        self._running = False
+
+    def add_task(self, task_func, *args, **kwargs):
+
+        t = AddDeviceThread()
+        t.start()
+        t.add_task(task_func, *args, **kwargs)
+
+        self._threads.append(t)
+
+    def run(self):
+        self._running = True
+        pass
+
+    def start(self):
+        self._running = True
+        pass
+
+    def empty(self):
+        return not self.task_in_process()
+
+    def task_in_process(self):
+        result = False
+        for thr in self._threads:
+            result &= thr.task_in_process()
+        return result
+
+    def stop_thread(self) -> None:
+        self._running = False
+
+        for thr in self._threads:
+            thr.stop_thread()
+
+
 class ProcessSSDPThread(threading.Thread):
     """
     Base class for threads to perform tasks.
     """
 
     # time for listening for SSDP answers
-    # we send M-SEARCH request with MX = 2 sec so all devicces should answer in 2 sec, but we add a little additional
+    # we send M-SEARCH request with MX = 2 sec so all devices should answer in 2 sec, but we add a little additional
     # timeout for program parsing
     SSDP_TIMEOUT_SEC = 2.2
 
@@ -129,7 +194,6 @@ class SSDPSearchThread:
         for adapter in adapters:
             for ip in adapter.ips:
                 self._threads.append(ProcessSSDPThread())
-                # self._threads[-1].start()
 
     def __len__(self):
         return len(self._threads)

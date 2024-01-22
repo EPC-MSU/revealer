@@ -19,7 +19,7 @@ import urllib.request
 
 import ast
 import threading
-from thread import ProcessThread, SSDPSearchThread
+from thread import ProcessThread, SSDPSearchThread, ParseDevicesThread
 import traceback
 
 from version import Version
@@ -166,7 +166,7 @@ class Revealer2:
         self.info = ""
 
         # thread with the adding new rows methods
-        self._update_table_thread = ProcessThread()
+        self._update_table_thread = ParseDevicesThread()
         self._update_table_thread.start()
         # ssdp search thread
         self._ssdp_search_thread = ProcessThread()
@@ -657,8 +657,9 @@ class Revealer2:
 
                     if data_strings[0] == 'NOTIFY * HTTP/1.1':
                         data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
-
-                        self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr, True)
+                        # NOTIFY flag at the end of the arguments is set to False since we don't want to filter NOTIFY
+                        # answers. #92687
+                        self._update_table_thread.add_task(self.add_new_item_task, data_dict, addr, False)
 
             except socket.timeout:
                 pass
