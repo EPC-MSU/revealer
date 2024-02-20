@@ -158,48 +158,62 @@ class Revealer2:
         # store event for using in clicking callbacks
         self.event = None
 
+        # flag indicating that we are in the process
+        self.window_updating = False
+
         # prepare notify socket for correct working
         self.sock_notify = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.sock_notify.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
-        self.sock_notify.bind(('', self.MULTICAST_SSDP_PORT))
+        try:
+            # self.sock_notify.bind(('', self.MULTICAST_SSDP_PORT))
+            self.sock_notify.bind(('', 53459))
 
-        self.info = ""
+            init_ok = True
+        except OSError:
+            # we can't bind to this port number (it may be already taken)
+            # create window with closing information
+            mb.showerror(
+                "Error",
+                "\nSSDP port 1900 is already in use. Revealer will be closed.",
+                parent=self.root
+            )
+            # close notify socket
+            self.sock_notify.close()
+            self.root.destroy()
+            init_ok = False
 
-        # thread with the adding new rows methods
-        self._update_table_thread = ParseDevicesThread()
-        self._update_table_thread.start()
-        # ssdp search thread
-        self._ssdp_search_thread = ProcessThread()
-        self._ssdp_search_thread.start()
+        if init_ok:
+            self.info = ""
 
-        self._ssdp_threads = SSDPSearchThread()
+            # thread with the adding new rows methods
+            self._update_table_thread = ParseDevicesThread()
+            self._update_table_thread.start()
+            # ssdp search thread
+            self._ssdp_search_thread = ProcessThread()
+            self._ssdp_search_thread.start()
 
-        # legacy search thread
-        self._old_search_thread = ProcessThread()
-        self._old_search_thread.start()
-        # thread for listening notify
-        self._notify_search_thread = ProcessThread()
-        self._notify_search_thread.start()
+            self._ssdp_threads = SSDPSearchThread()
 
-        # flag of the GUI destroying, is set than user wants to close the window
-        self._destroy_flag = threading.Event()
-        # flag of the search in progress
-        self._in_process = threading.Event()
-        # thread safe event to indicate that we need to update main table one time after search is ended
-        self._in_process_after = threading.Event()
-        # flag of the MIPAS in progress
-        self._changing_settings = threading.Event()
+            # legacy search thread
+            self._old_search_thread = ProcessThread()
+            self._old_search_thread.start()
+            # thread for listening notify
+            self._notify_search_thread = ProcessThread()
+            self._notify_search_thread.start()
 
-        # self._ssdp_stop = threading.Event()
-        # self._ssdp_stop.set()
+            # flag of the GUI destroying, is set than user wants to close the window
+            self._destroy_flag = threading.Event()
+            # flag of the search in progress
+            self._in_process = threading.Event()
+            # thread safe event to indicate that we need to update main table one time after search is ended
+            self._in_process_after = threading.Event()
+            # flag of the MIPAS in progress
+            self._changing_settings = threading.Event()
 
-        # flag indicating that main button state was changed for some process
-        self.buttons_state_changed = False
-        # flag indicating that table buttons states were changed for MIPAS
-        self.table_buttons_state_changed = False
-
-        # flag indicating that we are in the process
-        self.window_updating = False
+            # flag indicating that main button state was changed for some process
+            self.buttons_state_changed = False
+            # flag indicating that table buttons states were changed for MIPAS
+            self.table_buttons_state_changed = False
 
     def __del__(self):
         self.sock_notify.close()
@@ -575,10 +589,12 @@ class Revealer2:
                 # check that we have version greater than this
                 if current_version_array[0] < version_with_settings_array[0]:
                     uuid = ""
-                elif current_version_array[1] < version_with_settings_array[1]:
-                    uuid = ""
-                elif current_version_array[2] < version_with_settings_array[2]:
-                    uuid = ""
+                elif current_version_array[0] == version_with_settings_array[0]:
+                    if current_version_array[1] < version_with_settings_array[1]:
+                        uuid = ""
+                    elif current_version_array[1] == version_with_settings_array[1]:
+                        if current_version_array[2] < version_with_settings_array[2]:
+                            uuid = ""
 
         else:
             uuid = None
@@ -1481,9 +1497,16 @@ class PropDialog(sd.Dialog):
 
 
 if __name__ == '__main__':
-    print("Starting Revealer... Version " + Version.full + ".")
+    print("Starting revealer version " + Version.full + ".")
 
     app = Revealer2()
-    app.root.protocol("WM_DELETE_WINDOW", app.on_closing)
-    app.root.after(app.UPDATE_TIME_MS, app.update_window)
-    app.root.mainloop()
+    try:
+        app.root.protocol("WM_DELETE_WINDOW", app.on_closing)
+        app.root.after(app.UPDATE_TIME_MS, app.update_window)
+        app.root.mainloop()
+    except TclError:
+        pass
+
+    del app
+
+    print("End.")
