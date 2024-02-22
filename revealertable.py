@@ -162,7 +162,7 @@ class RevealerTable:
     lock = threading.Lock()
 
     def __init__(self, master, col, row, height, left_click_url_func=None, right_click_func=None, settings_func=None,
-                 properties_view_func=None, os_main_root=None):
+                 properties_view_func=None, os_main_root=None, font_name='TkTextFont'):
         self.great_table = None
 
         self.main_table = self.create_table(master, col, row, height)
@@ -170,6 +170,9 @@ class RevealerTable:
         self.right_click_func = right_click_func
         self.settings_func = settings_func
         self.properties_view_func = properties_view_func
+
+        self.main_font = font.nametofont(font_name)
+        self.main_font.actual()
 
         self.col = col
         self.row = row
@@ -422,7 +425,7 @@ class RevealerTable:
 
         # device label
         device_widget.configure(text=device_info['name'])
-        device_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+        device_widget.configure(font=(self.main_font.name, self.main_font.actual()['size'],
                                       device_font_weight))
 
         if tag != "not_local":
@@ -430,20 +433,20 @@ class RevealerTable:
             # link label
             if link[0:4] == "http":
                 link_widget.configure(text=link)
-                link_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+                link_widget.configure(font=(self.main_font.name, self.main_font.actual()['size'],
                                             'underline'))
                 link_widget.configure(fg="blue")
                 link_widget.configure(cursor=self.pointer_cursor)
             else:
                 link_widget.configure(text=link)
-                link_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+                link_widget.configure(font=(self.main_font.name, self.main_font.actual()['size'],
                                             device_font_weight))
                 link_widget.configure(fg=DEFAULT_TEXT_COLOR)
                 link_widget.configure(cursor="arrow")
 
         else:
             link_widget.configure(text=link)
-            link_widget.configure(font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+            link_widget.configure(font=(self.main_font.name, self.main_font.actual()['size'],
                                         device_font_weight))
             link_widget.configure(fg=DEFAULT_TEXT_COLOR)
             link_widget.configure(cursor="arrow")
@@ -491,23 +494,23 @@ class RevealerTable:
         if device_info['tag'] != "not_local":
             device = Label(self.main_table, text=device_info['name'], anchor="w", background=bg_color,
                            fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
+                           font=(self.main_font.name, self.main_font.actual()['size'], font_weight))
             if device_info['link'][0:4] == "http":
                 link_l = Label(self.main_table, text=device_info['link'], anchor="w", background=bg_color,
                                cursor=self.pointer_cursor,
                                fg="blue",
-                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
+                               font=(self.main_font.name, self.main_font.actual()['size'], 'underline'))
             else:
                 link_l = Label(self.main_table, text=device_info['link'], anchor="w", background=bg_color,
                                fg=DEFAULT_TEXT_COLOR,
-                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
+                               font=(self.main_font.name, self.main_font.actual()['size'], font_weight))
         else:
             device = Label(self.main_table, text=device_info['name'], anchor="w", background=bg_color,
                            fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
+                           font=(self.main_font.name, self.main_font.actual()['size'], font_weight))
             link_l = Label(self.main_table, text=device_info['link'], anchor="w", background=bg_color,
                            fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_weight))
+                           font=(self.main_font.name, self.main_font.actual()['size'], font_weight))
 
         link_l.grid(row=alpha_row, column=2, sticky="ew")
         device.grid(row=alpha_row, column=0, sticky="ew")
@@ -655,15 +658,15 @@ class RevealerTable:
         if device_info['tag'] != "not_local":
             device = Label(self.main_table, text=device_info['name'], anchor="w", background=bg_color,
                            fg=DEFAULT_TEXT_COLOR,
-                           font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+                           font=(self.main_font.name, self.main_font.actual()['size'], 'bold'))
             link = Label(self.main_table, text=device_info['link'], anchor="w", background=bg_color,
                          cursor=self.pointer_cursor,
-                         fg="blue", font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline'))
+                         fg="blue", font=(self.main_font.name, self.main_font.actual()['size'], 'underline'))
         else:
             device = Label(self.main_table, text=device_info['name'], anchor="w", background=bg_color)
             link = Label(self.main_table, text=device_info['link'], anchor="w", background=bg_color,
                          fg=DEFAULT_TEXT_COLOR,
-                         font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], ''))
+                         font=(self.main_font.name, self.main_font.actual()['size'], ''))
 
         link.grid(row=alpha_row, column=2, sticky="ew")
         device.grid(row=alpha_row, column=0, sticky="ew")
@@ -718,7 +721,6 @@ class RevealerTable:
         # so... ignore the new row i guess
         # first of all check if had this object already
 
-        # todo: we need to put our devices on top of the list
         # for this aim we parse uuid since we add uuid here only for our devices
         if uuid is None:
             # other device

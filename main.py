@@ -31,10 +31,16 @@ CURSOR_POINTER = "hand2"
 CURSOR_POINTER_MACOS = "pointinghand"
 DEFAULT_BG_COLOR = "white"
 
-URL_REGEX_PORT = "https?:\/\/((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\.?\\b){4}:\\d{1,5}"
-URL_REGEX_WITHOUT_PORT = "https?:\/\/((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\.?\\b){4}"
-IP_ADDRES_REGEX = "((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\.?\\b){4}"
+URL_REGEX_PORT = "https?:\\/\\/((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}:\\d{1,5}"
+URL_REGEX_WITHOUT_PORT = "https?:\\/\\/((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}"
+IP_ADDRES_REGEX = "((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}"
 PORT_REGEX = ":\\d{1,5}"
+
+# name of the font for tkinter to use in all widgets
+# This may not be the solution for the fontconfig error on the newer Linux systems but it should stop tkinter
+# from trying to use some other fonts.
+# See #92174 for the discussion.
+FONT_NAME = "TkDefaultFont"
 
 
 def center(win):
@@ -120,6 +126,16 @@ class Revealer2:
 
         center(self.root)
 
+        # get font object from its name
+        self.main_font = font.nametofont(FONT_NAME)
+        self.main_font.actual()
+        # set this font as default for all tkinter widgets
+        self.root.option_add("*Font", self.main_font)
+
+        # configure ttk to use this font for all widgets (main button) as well
+        s = ttk.Style()
+        s.configure('.', font=self.main_font)
+
         # try to use mac os specific cursor - if exception is raised we are not on mac os and should use default
         self.pointer_cursor = CURSOR_POINTER_MACOS
         try:
@@ -149,7 +165,8 @@ class Revealer2:
         self.main_table = RevealerTable(mainframe, col=0, row=1, height=300, left_click_url_func=self.open_link,
                                         settings_func=self.change_ip_click,
                                         properties_view_func=self.view_prop,
-                                        os_main_root=os.path.dirname(__file__))
+                                        os_main_root=os.path.dirname(__file__),
+                                        font_name=FONT_NAME)
 
         # configure paddings for the main frame
         for child in mainframe.winfo_children():
@@ -165,8 +182,7 @@ class Revealer2:
         self.sock_notify = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.sock_notify.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
         try:
-            # self.sock_notify.bind(('', self.MULTICAST_SSDP_PORT))
-            self.sock_notify.bind(('', 53459))
+            self.sock_notify.bind(('', self.MULTICAST_SSDP_PORT))
 
             init_ok = True
         except OSError:
@@ -174,7 +190,7 @@ class Revealer2:
             # create window with closing information
             mb.showerror(
                 "Error",
-                "\nSSDP port 1900 is already in use. Revealer will be closed.",
+                "\nSSDP port (" + str(self.MULTICAST_SSDP_PORT) + ") is already in use.",
                 parent=self.root
             )
             # close notify socket
@@ -297,7 +313,7 @@ class Revealer2:
 
         # create window with closing information
         popup = Toplevel()
-        # TODO: do we need to his _ X for this window ?
+        # TODO: do we need this _ X for this window ?
         # popup.overrideredirect(True)
         popup.grab_set()
         # add revealer icon
@@ -399,7 +415,10 @@ class Revealer2:
     def view_prop(self, prop_dict, link):
         try:
             # if we have local SSDP device
-            name = prop_dict['friendlyName']
+            if prop_dict['friendlyName'] == "Undefined":
+                name = prop_dict['ssdp_server']
+            else:
+                name = prop_dict['friendlyName']
             PropDialog(name, prop_dict, link, parent=self.root)
         except KeyError:
             try:
@@ -407,7 +426,7 @@ class Revealer2:
                 name = prop_dict['server']
                 PropDialog(name, prop_dict, link, parent=self.root)
             except KeyError:
-                print('No properties for this device')
+                log.debug('No properties for this device')
                 pass
 
     def view_prop_old(self):
@@ -431,7 +450,7 @@ class Revealer2:
                         PropDialog(name, prop_dict, tree.item(iid)['values'][2], parent=self.root)
                     except KeyError:
                         prop_dict = tree.item(iid)['values'][1]
-                        print('No properties for this device')
+                        log.debug('No properties for this device')
                         pass
         elif tree.winfo_class() == "Label":
             if hasattr(tree, "other_data") and hasattr(tree, "link"):
@@ -446,7 +465,7 @@ class Revealer2:
                         name = prop_dict['server']
                         PropDialog(name, prop_dict, tree.link, parent=self.root)
                     except KeyError:
-                        print('No properties for this device')
+                        log.debug('No properties for this device')
                         pass
 
     def open_link(self, event=None):
@@ -615,9 +634,10 @@ class Revealer2:
             if xml_dict is not None:
                 # check that we have our url with correct format
                 try:
-                    if xml_dict["presentationURL"][0:4] != "http":
-                        # TODO: remove commented code
-                        # link = "http://" + addr[0] + xml_dict["presentationURL"]
+                    if xml_dict["presentationURL"] is None:
+                        link = data_dict["location_url"]
+                        xml_dict["presentationURL"] = '-'
+                    elif xml_dict["presentationURL"][0:4] != "http":
                         link = data_dict["location_url"] + xml_dict["presentationURL"]
                     else:
                         # from the XML-description we should get relative URL but if we have absolute - use absolute
@@ -626,11 +646,24 @@ class Revealer2:
                     xml_dict["presentationURL"] = '-'
                     link = addr[0]
 
+                # add version and server name from ssdp dict
                 xml_dict["version"] = data_dict["version"]
+                xml_dict["ssdp_server"] = data_dict["server"]
+
+                # try to avoid all None fields in the xml data
+                for field in xml_dict:
+                    if xml_dict[field] is None:
+                        xml_dict[field] = "Undefined"
+
+                # check friendlyName field
+                if "friendlyName" not in xml_dict or xml_dict["friendlyName"] == "Undefined":
+                    device_name = xml_dict["ssdp_server"]
+                else:
+                    device_name = xml_dict["friendlyName"]
 
                 if not self._destroy_flag.is_set():
                     with self.main_table.lock:
-                        self.main_table.add_row_ssdp_item(xml_dict["friendlyName"],
+                        self.main_table.add_row_ssdp_item(device_name,
                                                           link, data_dict["ssdp_url"], uuid, xml_dict,
                                                           tag=RevealerDeviceTag.LOCAL)
             else:
@@ -719,7 +752,7 @@ class Revealer2:
     def _parse_ssdp_header_location(self, string, ssdp_dict, addr) -> None:
         # get only field value:
 
-        field_name = re.match("location:\s*", string.lower()).group()
+        field_name = re.match("location:\\s*", string.lower()).group()
         value_string = string[len(field_name):]
 
         ip_address, port, xml_raw = self._parse_location_url(value_string)
@@ -969,7 +1002,7 @@ class Revealer2:
                 # request changing net settings
                 self.change_ip_multicast(uuid, new_settings)
             except ValueError:
-                print(f"Errors in inserted values: {dialog.result}")
+                log.error(f"Errors in inserted values for changing network settings process: {dialog.result}")
 
     def _listen_and_capture_returned_responses_old(self,
                                                    sock: socket.socket,
@@ -988,17 +1021,6 @@ class Revealer2:
                         with self.main_table.lock:
                             self.main_table.add_row_old_item(title, "http://" + addr[0],
                                                              tag=RevealerDeviceTag.OLD_LOCAL)
-
-                    """for i in range(40):
-                        if self._destroy_flag.is_set():
-                            sock.close()
-                            return True
-                        with self.main_table.lock:
-                            rand_i = int(random.random() * 40) + i
-                            self._update_table_thread.add_task(self.main_table.add_row_old_item,
-                                                               title + "." + str(rand_i),
-                                                               "http://" + addr[0] + "." + str(rand_i),
-                                                               RevealerDeviceTag.OLD_LOCAL)"""
 
                     ssdp_device_number += 1
 
@@ -1045,7 +1067,6 @@ class Revealer2:
                     try:
                         message = "DISCOVER_CUBIELORD_REQUEST " + str(sock.getsockname()[1])
                     except Exception:
-                        print('error while getting socket port number')
                         continue
 
                     sock.settimeout(0.5)
@@ -1090,6 +1111,9 @@ class MIPASDialog(sd.Dialog):
     def __init__(self, title, device, uuid,
                  initialvalue=None,
                  parent=None):
+
+        self.main_font = font.nametofont(FONT_NAME)
+        self.main_font.actual()
 
         self.device = device
         self.uuid = uuid
@@ -1180,10 +1204,10 @@ class MIPASDialog(sd.Dialog):
         # try to change foreground color for macos
         try:
             frame = LabelFrame(master, text="Network settings", fg=self.text_color,
-                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+                               font=(self.main_font.name, self.main_font.actual()['size'], 'bold'))
         except TclError:
             frame = LabelFrame(master, text="Network settings",
-                               font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'bold'))
+                               font=(self.main_font.name, self.main_font.actual()['size'], 'bold'))
 
         frame.grid(row=2, column=0, sticky='ns')
 
@@ -1233,7 +1257,7 @@ class MIPASDialog(sd.Dialog):
         note_frame.grid(row=3, column=0, sticky='news')
 
         self.note_label = Label(note_frame, text=self.USER_NOTE_TEXT, justify=LEFT,
-                                font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'italic'),
+                                font=(self.main_font.name, self.main_font.actual()['size'], 'italic'),
                                 wraplength=100)
         self.note_label.grid(column=0, row=0, padx=5, sticky='we')
 
@@ -1370,6 +1394,9 @@ class PropDialog(sd.Dialog):
         self.name = device_name
         self.url = url
 
+        self.main_font = font.nametofont(FONT_NAME)
+        self.main_font.actual()
+
         self.dict = properties_dict
 
         self.labels_dict = {'friendlyName': 'Friendly name', 'manufacturer': 'Manufacturer',
@@ -1415,18 +1442,18 @@ class PropDialog(sd.Dialog):
                     text_color = self.text_color
                     label_name = self.labels_dict[name]
                     Label(master, text=label_name + ": ", justify=LEFT, fg=text_color,
-                          font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'],
+                          font=(self.main_font.name, self.main_font.actual()['size'],
                                 'bold')).grid(column=0, row=row_index, padx=5, sticky='w')
                     label_count += 1
                     if name == 'presentationURL' and self.dict[name] != '-':
                         text_color = "blue"
                         Label(master, text=self.url, justify=LEFT, cursor=self.pointer_cursor, fg=text_color,
-                              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'underline')).grid(
+                              font=(self.main_font.name, self.main_font.actual()['size'], 'underline')).grid(
                             column=1, row=row_index, padx=5, sticky='w')
                         label_count += 1
                     elif name == 'presentationURL' and self.dict[name] == '-':
-                        Label(master, text='Presentation web-page is absent', justify=LEFT, fg=text_color,
-                              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], 'italic')).grid(
+                        Label(master, text='Undefined', justify=LEFT, fg=text_color,
+                              font=(self.main_font.name, self.main_font.actual()['size'], 'italic')).grid(
                             column=1, row=row_index, padx=5, sticky='w')
                         label_count += 1
                     else:
@@ -1434,8 +1461,10 @@ class PropDialog(sd.Dialog):
                             font_style = 'underline'
                             cursor = self.pointer_cursor
                             text_color = "blue"
+                        elif self.dict[name] == "Undefined":
+                            font_style = 'italic'
                         Label(master, text=self.dict[name], justify=LEFT, cursor=cursor, fg=text_color,
-                              font=('TkTextFont', font.nametofont('TkTextFont').actual()['size'], font_style)).grid(
+                              font=(self.main_font.name, self.main_font.actual()['size'], font_style)).grid(
                             column=1, row=row_index, padx=5, sticky='w')
                         label_count += 1
                     row_index += 1
@@ -1492,8 +1521,8 @@ class PropDialog(sd.Dialog):
             # if we have link in the label object that we double-clicked -> open it
             if link[0:4] == "http":
                 wb.open_new_tab(link)
-        except TclError as err:
-            print('Tkinter error:', err)
+        except TclError:
+            pass
 
 
 if __name__ == '__main__':
