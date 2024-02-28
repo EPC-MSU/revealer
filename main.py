@@ -180,6 +180,7 @@ class Revealer2:
 
         # prepare notify socket for correct working
         self.sock_notify = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        self.sock_notify.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock_notify.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
         try:
             self.sock_notify.bind(('', self.MULTICAST_SSDP_PORT))
@@ -817,9 +818,8 @@ class Revealer2:
 
         try:
             response = urllib.request.urlopen(url, timeout=1).read().decode('utf-8')
-            data = response.split('\r\n\r\n')  # we need to get rid of the headers
 
-            tree = ET.fromstring(data[len(data) - 1])
+            tree = ET.fromstring(response)
 
             for child in tree:
                 tag_array = child.tag.split('}')
@@ -833,7 +833,8 @@ class Revealer2:
 
             return xml_dict
 
-        except Exception:
+        except Exception as err:
+            print("Exception for xml_dict", url, err)
             return None
 
     def change_ip_multicast(self, uuid, settings_dict):
@@ -1403,7 +1404,7 @@ class PropDialog(sd.Dialog):
                             'manufacturerURL': 'Manufacturer URL', 'modelDescription': 'Model description',
                             'modelName': 'Model name', 'modelNumber': 'Model number', 'modelURL': 'Model URL',
                             'serialNumber': 'Serial number', 'UDN': 'UDN', 'presentationURL': 'Presentation URL',
-                            'server': 'SSDP server', 'uuid': 'UUID', 'version': 'Firmware version', 'ssdp_url': 'URL'}
+                            'server': 'SSDP server', 'uuid': 'UUID', 'version': 'Product version', 'ssdp_url': 'IP'}
 
         # try to use mac os specific cursor - if exception is raised we are not on mac os and should use default
         self.pointer_cursor = CURSOR_POINTER_MACOS
