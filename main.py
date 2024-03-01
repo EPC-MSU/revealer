@@ -720,30 +720,72 @@ class Revealer2:
                 break
 
     def _parse_ssdp_header_server(self, string, ssdp_dict) -> None:
-        print(string)
+        """
+        Correct format for SERVER header is:
+            <OS>/<OS version> UPnP/<version of UPnP supported> <product>/<product version>
+
+        All fields should be filled according to HTTP/1.1 “product tokens”.
+
+        For example, “SERVER: unix/5.1 UPnP/2.0 MyProduct/1.0”
+
+        Note: whitespaces are used as separator so should not be used in OS / product strings but if some device has
+        additional whitespaces in its product tokens revealer should try and parse them as well with logging about that.
+
+        :param string: str
+           String after SERVER header.
+        :param ssdp_dict: dict
+           Dict with SSDP properties of this device to be filled with parsed information.
+        :return:
+        """
+        warning_line = ''
+
         words_string = string.split(' ')
-        os_version = words_string[0]
-        os_version_words = os_version.split('/')
-        # TODO: check different lines (with trailing whitespaces and so on)
-        server_version = words_string[len(words_string) - 1]  # last word after ' '
-        server_version_words = server_version.split('/')
+        # check that format is correct
+        if len(words_string) != 3:
+            warning_line += "SERVER header line with incorrect format: '" +\
+                            string + "'. Whitespaces shouldn't be used in the OS and product names."
+
+            # try to find UPnP field
+            index_upnp = string.index("UPnP/")
+            if index_upnp < 0:
+                warning_line += "Can't parse SERVER header line without UPnP field at all: '" +\
+                                string + "'."
+                os_version_words = ["Not provided", "Not provided"]
+                server_version_words = ["Not provided", "Not provided"]
+            else:
+                os_fields = string[0:index_upnp]
+                os_version_words = os_fields.split('/')
+
+                product_fields = string[index_upnp + 1 + string[index_upnp:].index(" "):]
+                server_version_words = product_fields.split('/')
+
+        else:
+            os_version = words_string[0]
+            os_version_words = os_version.split('/')
+            # TODO: check different lines (with trailing whitespaces and so on)
+            server_version = words_string[len(words_string) - 1]  # last word after ' '
+            server_version_words = server_version.split('/')
+
+        if len(warning_line) > 0:
+            print("Warning:", warning_line)
+
         try:
             ssdp_dict["server"] = server_version_words[0]
         except IndexError:
-            ssdp_dict["server"] = None
+            ssdp_dict["server"] = "Not provided"
         try:
             ssdp_dict["version"] = server_version_words[1]
         except IndexError:
-            ssdp_dict["version"] = None
+            ssdp_dict["version"] = "Not provided"
 
         try:
             ssdp_dict["os"] = os_version_words[0]
         except IndexError:
-            ssdp_dict["os"] = None
+            ssdp_dict["os"] = "Not provided"
         try:
             ssdp_dict["os_version"] = os_version_words[1]
         except IndexError:
-            ssdp_dict["os_version"] = None
+            ssdp_dict["os_version"] = "Not provided"
 
     @staticmethod
     def _parse_location_url(string):
