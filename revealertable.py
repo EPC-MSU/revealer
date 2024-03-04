@@ -528,7 +528,7 @@ class RevealerTable:
         link_l.other_data = device_info['other_data']
 
         # add settings button
-        if device_info['uuid'] is None:
+        if device_info['uuid'] is None and not device_info["mipas"]:
             button_settings = ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
                                              command_change=lambda:
                                              self.settings_func(device_info['name'], device_info['uuid'],
@@ -537,7 +537,7 @@ class RevealerTable:
                                                                                             link_l['text']),
                                              bg_color=bg_color, width=1, tag=device_info['tag'],
                                              type=RevealerDeviceType.OTHER)
-        elif device_info['uuid'] != "":
+        elif device_info['uuid'] != "" or device_info["mipas"]:
             button_settings = ButtonSettings(self.main_table, col=4, row=alpha_row, os_main_root=self.os_main_root,
                                              command_change=lambda:
                                              self.settings_func(device_info['name'], device_info['uuid'],
@@ -720,17 +720,28 @@ class RevealerTable:
         # we need to sort alphabetically at every moment
         # so... ignore the new row i guess
         # first of all check if had this object already
+        mipas_support = False
 
         # for this aim we parse uuid since we add uuid here only for our devices
         if uuid is None:
-            # other device
-            type = RevealerDeviceType.OTHER
+            # we add MIPAS field to our PC server or newer version of the firmwares
+            # so if we got this - it is our as well
+            if 'mipas' in other_data and other_data['mipas'] == "True":
+                # our device
+                mipas_support = True
+                type = RevealerDeviceType.OUR
+            else:
+                # other device
+                type = RevealerDeviceType.OTHER
         else:
+            if 'mipas' in other_data and other_data['mipas'] == "True":
+                # our device
+                mipas_support = True
             # our device
             type = RevealerDeviceType.OUR
 
         self.device_list.add_device(name=name, link=link, ip_address=ip_address, uuid=uuid, other_data=other_data,
-                                    tag=tag, device_type=type, legacy=False)
+                                    tag=tag, device_type=type, legacy=False, mipas_support=mipas_support)
 
         return
 

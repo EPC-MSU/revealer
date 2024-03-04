@@ -19,7 +19,7 @@ class RevealerDeviceRow:
     """
 
     def __init__(self, device_name, device_type, device_info, device_link, device_ip_address, device_uuid, device_tag,
-                 device_legacy=False):
+                 device_legacy=False, device_mipas=False):
         self.name = device_name
         self.type = device_type
         self.other_data = device_info
@@ -28,6 +28,8 @@ class RevealerDeviceRow:
         self.uuid = device_uuid
         self.tag = device_tag
         self.legacy = device_legacy
+        # flag to indicate that this is our device which support setting network settings via SSDP
+        self.mipas = device_mipas
 
         self.row = 0
 
@@ -38,7 +40,7 @@ class RevealerDeviceRow:
         return self.row
 
     def reinit(self, device_name, device_type, device_info, device_link, device_ip_address, device_uuid, device_tag,
-               device_legacy=False):
+               device_legacy=False, device_mipas=False):
         self.name = device_name
         self.type = device_type
         self.other_data = device_info
@@ -47,6 +49,8 @@ class RevealerDeviceRow:
         self.uuid = device_uuid
         self.tag = device_tag
         self.legacy = device_legacy
+        # flag to indicate that this is our device which support setting network settings via SSDP
+        self.mipas = device_mipas
 
         self.row = 0
 
@@ -59,7 +63,8 @@ class RevealerDeviceRow:
             device_ip_address=self.ip_address,
             device_uuid=self.uuid,
             device_tag=self.tag,
-            device_legacy=self.legacy
+            device_legacy=self.legacy,
+            device_mipas=self.mipas
         )
 
     def get_dict(self):
@@ -71,7 +76,8 @@ class RevealerDeviceRow:
             'ip_address': self.ip_address,
             'uuid': self.uuid,
             'tag': self.tag,
-            'legacy': self.legacy
+            'legacy': self.legacy,
+            'mipas': self.mipas
         }
         return row_dict
 
@@ -99,7 +105,7 @@ class RevealerDeviceList:
         self.legacy_dict = {}
         self.ip_dict_whole = {}
 
-    def add_device(self, name, device_type, link, ip_address, other_data, uuid, tag, legacy):
+    def add_device(self, name, device_type, link, ip_address, other_data, uuid, tag, legacy, mipas_support=False):
 
         device_row = RevealerDeviceRow(
             device_name=name,
@@ -109,7 +115,8 @@ class RevealerDeviceList:
             device_ip_address=ip_address,
             device_uuid=uuid,
             device_tag=tag,
-            device_legacy=legacy
+            device_legacy=legacy,
+            device_mipas=mipas_support
         )
 
         if not legacy:

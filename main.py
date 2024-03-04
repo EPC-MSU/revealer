@@ -73,6 +73,7 @@ class Revealer2:
     SSDP_HEADER_SERVER = "server"
     SSDP_HEADER_LOCATION = "location"
     SSDP_HEADER_USN = "usn"
+    SSDP_HEADER_MIPAS = "mipas"
 
     MULTICAST_SSDP_PORT = 1900
 
@@ -616,6 +617,9 @@ class Revealer2:
                         if current_version_array[2] < version_with_settings_array[2]:
                             uuid = ""
 
+        elif data_dict['mipas'] == "True":
+            uuid = data_dict["uuid"]
+
         else:
             uuid = None
 
@@ -847,7 +851,7 @@ class Revealer2:
     def parse_ssdp_data(self, ssdp_data, addr):
         ssdp_dict = {"server": "Not provided", "version": "Not provided", "location": "Not provided",
                      "ssdp_url": "Not provided", "uuid": "Not provided", "location_url": "Not provided",
-                     "os": "Not provided", "os_version": "Not provided"}
+                     "os": "Not provided", "os_version": "Not provided", "mipas": "Not provided"}
         ssdp_strings = ssdp_data.split("\r\n")
 
         try:
@@ -870,6 +874,11 @@ class Revealer2:
                             Revealer2.SSDP_HEADER_USN:
                         # USN: uuid:40001d0a-0000-0000-8e31-4010900b00c8::upnp:rootdevice
                         self._parse_ssdp_header_usn(string, ssdp_dict, addr)
+                    elif words_string[0].lower() == \
+                            Revealer2.SSDP_HEADER_MIPAS:
+                        # MIPAS: - our special field to identifty that this device
+                        # supports network settings changing via multicast
+                        ssdp_dict["mipas"] = "True"
         except Exception:
             except_info = traceback.format_exc()
             self.print_i(f"Error in parsing {addr} SSDP data:\n{except_info}")
