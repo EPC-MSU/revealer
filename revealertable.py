@@ -225,7 +225,7 @@ class RevealerTable:
         header_2.grid(row=0, column=1, sticky="news")
         header_2.tag = self.HEADER_TAG
 
-        header_3 = Label(new_table, text="URL", anchor="center", background=self.HEADER_COLOR, height=0,
+        header_3 = Label(new_table, text="URL / IP", anchor="center", background=self.HEADER_COLOR, height=0,
                          fg=DEFAULT_TEXT_COLOR)
         header_3.grid(row=0, column=2, sticky="ew")
         header_3.tag = self.HEADER_TAG

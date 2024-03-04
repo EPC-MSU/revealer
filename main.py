@@ -416,7 +416,7 @@ class Revealer2:
     def view_prop(self, prop_dict, link):
         try:
             # if we have local SSDP device
-            if prop_dict['friendlyName'] == "Undefined":
+            if prop_dict['friendlyName'] == "Not provided":
                 name = prop_dict['ssdp_server']
             else:
                 name = prop_dict['friendlyName']
@@ -633,6 +633,9 @@ class Revealer2:
                 return
 
             if xml_dict is not None:
+                # append all datadict field to xml_dict
+                for name in data_dict:
+                    xml_dict[name] = data_dict[name]
                 # check that we have our url with correct format
                 try:
                     if xml_dict["presentationURL"] is None:
@@ -654,10 +657,10 @@ class Revealer2:
                 # try to avoid all None fields in the xml data
                 for field in xml_dict:
                     if xml_dict[field] is None:
-                        xml_dict[field] = "Undefined"
+                        xml_dict[field] = "Not provided"
 
                 # check friendlyName field
-                if "friendlyName" not in xml_dict or xml_dict["friendlyName"] == "Undefined":
+                if "friendlyName" not in xml_dict or xml_dict["friendlyName"] == "Not provided":
                     device_name = xml_dict["ssdp_server"]
                 else:
                     device_name = xml_dict["friendlyName"]
@@ -717,17 +720,72 @@ class Revealer2:
                 break
 
     def _parse_ssdp_header_server(self, string, ssdp_dict) -> None:
+        """
+        Correct format for SERVER header is:
+            <OS>/<OS version> UPnP/<version of UPnP supported> <product>/<product version>
+
+        All fields should be filled according to HTTP/1.1 “product tokens”.
+
+        For example, “SERVER: unix/5.1 UPnP/2.0 MyProduct/1.0”
+
+        Note: whitespaces are used as separator so should not be used in OS / product strings but if some device has
+        additional whitespaces in its product tokens revealer should try and parse them as well with logging about that.
+
+        :param string: str
+           String after SERVER header.
+        :param ssdp_dict: dict
+           Dict with SSDP properties of this device to be filled with parsed information.
+        :return:
+        """
+        warning_line = ''
+
         words_string = string.split(' ')
-        server_version = words_string[len(words_string) - 1]  # last word after ' '
-        server_version_words = server_version.split('/')
+        # check that format is correct
+        if len(words_string) != 3:
+            warning_line += "SERVER header line with incorrect format: '" +\
+                            string + "'. Whitespaces shouldn't be used in the OS and product names."
+
+            # try to find UPnP field
+            index_upnp = string.index("UPnP/")
+            if index_upnp < 0:
+                warning_line += "Can't parse SERVER header line without UPnP field at all: '" +\
+                                string + "'."
+                os_version_words = ["Not provided", "Not provided"]
+                server_version_words = ["Not provided", "Not provided"]
+            else:
+                os_fields = string[0:index_upnp]
+                os_version_words = os_fields.split('/')
+
+                product_fields = string[index_upnp + 1 + string[index_upnp:].index(" "):]
+                server_version_words = product_fields.split('/')
+
+        else:
+            os_version = words_string[0]
+            os_version_words = os_version.split('/')
+            # TODO: check different lines (with trailing whitespaces and so on)
+            server_version = words_string[len(words_string) - 1]  # last word after ' '
+            server_version_words = server_version.split('/')
+
+        if len(warning_line) > 0:
+            print("Warning:", warning_line)
+
         try:
             ssdp_dict["server"] = server_version_words[0]
         except IndexError:
-            ssdp_dict["server"] = "None"
+            ssdp_dict["server"] = "Not provided"
         try:
             ssdp_dict["version"] = server_version_words[1]
         except IndexError:
-            ssdp_dict["version"] = '-'
+            ssdp_dict["version"] = "Not provided"
+
+        try:
+            ssdp_dict["os"] = os_version_words[0]
+        except IndexError:
+            ssdp_dict["os"] = "Not provided"
+        try:
+            ssdp_dict["os_version"] = os_version_words[1]
+        except IndexError:
+            ssdp_dict["os_version"] = "Not provided"
 
     @staticmethod
     def _parse_location_url(string):
@@ -787,7 +845,9 @@ class Revealer2:
                          f"\n{except_info}")
 
     def parse_ssdp_data(self, ssdp_data, addr):
-        ssdp_dict = {"server": "", "version": "", "location": "", "ssdp_url": "", "uuid": "", "location_url": ""}
+        ssdp_dict = {"server": "Not provided", "version": "Not provided", "location": "Not provided",
+                     "ssdp_url": "Not provided", "uuid": "Not provided", "location_url": "Not provided",
+                     "os": "Not provided", "os_version": "Not provided"}
         ssdp_strings = ssdp_data.split("\r\n")
 
         try:
@@ -797,7 +857,12 @@ class Revealer2:
 
                     if words_string[0].lower() \
                             == Revealer2.SSDP_HEADER_SERVER:  # format: SERVER: lwIP/1.4.1 UPnP/2.0 8SMC5-USB/4.7.7
-                        self._parse_ssdp_header_server(string, ssdp_dict)
+                        # remove header from string
+                        string = string[len(Revealer2.SSDP_HEADER_SERVER)+1:]
+                        if len(string) > 0 and string[0] == ' ':
+                            string = string[1:]
+                        if len(string) > 0:
+                            self._parse_ssdp_header_server(string, ssdp_dict)
                     elif words_string[0].lower() == \
                             Revealer2.SSDP_HEADER_LOCATION:  # format: LOCATION: http://172.16.130.67:80/Basic_info.xml
                         self._parse_ssdp_header_location(string, ssdp_dict, addr)
@@ -1400,11 +1465,23 @@ class PropDialog(sd.Dialog):
 
         self.dict = properties_dict
 
-        self.labels_dict = {'friendlyName': 'Friendly name', 'manufacturer': 'Manufacturer',
-                            'manufacturerURL': 'Manufacturer URL', 'modelDescription': 'Model description',
-                            'modelName': 'Model name', 'modelNumber': 'Model number', 'modelURL': 'Model URL',
-                            'serialNumber': 'Serial number', 'UDN': 'UDN', 'presentationURL': 'Presentation URL',
-                            'server': 'SSDP server', 'uuid': 'UUID', 'version': 'Product version', 'ssdp_url': 'IP'}
+        self.labels_dict = {'friendlyName': {'name': 'Friendly name', 'row': 0},
+                            'manufacturer': {'name': 'Manufacturer', 'row': 1},
+                            'manufacturerURL': {'name': 'Manufacturer URL', 'row': 2},
+                            'modelDescription': {'name': 'Model description', 'row': 3},
+                            'modelName': {'name': 'Model name', 'row': 4},
+                            'modelNumber': {'name': 'Model number', 'row': 5},
+                            'modelURL': {'name': 'Model URL', 'row': 6},
+                            'serialNumber': {'name': 'Serial number', 'row': 7},
+                            'UDN': {'name': 'UDN', 'row': 8},
+                            'presentationURL': {'name': 'Presentation URL', 'row': 9},
+                            'server': {'name': 'Product', 'row': 32},
+                            'uuid': {'name': 'UUID', 'row': 34},
+                            'version': {'name': 'Product version', 'row': 33},
+                            'ssdp_url': {'name': 'IP', 'row': 35},
+                            'os': {'name': 'OS', 'row': 30},
+                            'os_version': {'name': 'OS version', 'row': 31},
+                            'location': {'name': 'Location', 'row': 36}}
 
         # try to use mac os specific cursor - if exception is raised we are not on mac os and should use default
         self.pointer_cursor = CURSOR_POINTER_MACOS
@@ -1430,8 +1507,6 @@ class PropDialog(sd.Dialog):
         except Exception:
             pass
 
-        row_index = 0
-
         label_count = 0
 
         for name in self.dict:
@@ -1441,34 +1516,37 @@ class PropDialog(sd.Dialog):
             if self.dict[name] is not None:
                 try:
                     text_color = self.text_color
-                    label_name = self.labels_dict[name]
+                    label_name = self.labels_dict[name]['name']
+                    row_number = self.labels_dict[name]['row']
+                    if row_number >= self.labels_dict['server']['row']:
+                        ttk.Separator(master, orient='horizontal').grid(column=0, row=29, pady=5, sticky='news')
+                        ttk.Separator(master, orient='horizontal').grid(column=1, row=29, pady=5, sticky='news')
                     Label(master, text=label_name + ": ", justify=LEFT, fg=text_color,
                           font=(self.main_font.name, self.main_font.actual()['size'],
-                                'bold')).grid(column=0, row=row_index, padx=5, sticky='w')
+                                'bold')).grid(column=0, row=row_number, padx=5, sticky='w')
                     label_count += 1
                     if name == 'presentationURL' and self.dict[name] != '-':
                         text_color = "blue"
                         Label(master, text=self.url, justify=LEFT, cursor=self.pointer_cursor, fg=text_color,
                               font=(self.main_font.name, self.main_font.actual()['size'], 'underline')).grid(
-                            column=1, row=row_index, padx=5, sticky='w')
+                            column=1, row=row_number, padx=5, sticky='w')
                         label_count += 1
                     elif name == 'presentationURL' and self.dict[name] == '-':
-                        Label(master, text='Undefined', justify=LEFT, fg=text_color,
+                        Label(master, text='Not provided', justify=LEFT, fg=text_color,
                               font=(self.main_font.name, self.main_font.actual()['size'], 'italic')).grid(
-                            column=1, row=row_index, padx=5, sticky='w')
+                            column=1, row=row_number, padx=5, sticky='w')
                         label_count += 1
                     else:
                         if self.dict[name][0:4] == "http":
                             font_style = 'underline'
                             cursor = self.pointer_cursor
                             text_color = "blue"
-                        elif self.dict[name] == "Undefined":
+                        elif self.dict[name] == "Not provided":
                             font_style = 'italic'
                         Label(master, text=self.dict[name], justify=LEFT, cursor=cursor, fg=text_color,
                               font=(self.main_font.name, self.main_font.actual()['size'], font_style)).grid(
-                            column=1, row=row_index, padx=5, sticky='w')
+                            column=1, row=row_number, padx=5, sticky='w')
                         label_count += 1
-                    row_index += 1
                 except KeyError:
                     pass
 
