@@ -43,6 +43,26 @@ PORT_REGEX = ":\\d{1,5}"
 FONT_NAME = "TkDefaultFont"
 
 
+def fix_env():
+    try:
+        lib_key = "LD_LIBRARY_PATH"
+        env_backup = os.environ.get(lib_key)
+        orig = os.environ.get(lib_key + "_ORIG")
+        if orig is None:
+            os.environ.pop(lib_key)
+        else:
+            os.environ[lib_key] = orig
+
+        return env_backup
+    except KeyError:
+        return None
+
+
+def restore_env(env_backup):
+    if env_backup is not None:
+        os.environ["LD_LIBRARY_PATH"] = env_backup
+
+
 def center(win):
     """
     centers a tkinter window
@@ -479,7 +499,9 @@ class Revealer2:
             if hasattr(label, 'link') and hasattr(label, 'tag'):
                 if (label.tag == RevealerDeviceTag.LOCAL or label.tag == RevealerDeviceTag.OLD_LOCAL) and \
                         label['foreground'] == "blue":
+                    env_old = fix_env()
                     wb.open_new_tab(label.link)  # open the link in a browser tab
+                    restore_env(env_old)
                 else:
                     log.info(f"Can't open {label.link} link.")
 
@@ -1633,7 +1655,9 @@ class PropDialog(sd.Dialog):
 
             # if we have link in the label object that we double-clicked -> open it
             if link[0:4] == "http":
+                env_old = fix_env()                 
                 wb.open_new_tab(link)
+                restore_env(env_old)               
         except TclError:
             pass
 
