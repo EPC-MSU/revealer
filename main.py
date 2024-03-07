@@ -686,6 +686,28 @@ class Revealer2:
                          f"{except_info}")
 
     def socket_notify_reinit(self):
+        # close notify socket
+        self.sock_notify.close()
+
+        # prepare notify socket for correct working
+        self.sock_notify = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        self.sock_notify.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock_notify.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
+        try:
+            self.sock_notify.bind(('', self.MULTICAST_SSDP_PORT))
+
+        except OSError:
+            # we can't bind to this port number (it may be already taken)
+            # create window with closing information
+            mb.showerror(
+                "Error",
+                "\nSSDP port (" + str(self.MULTICAST_SSDP_PORT) + ") is already in use.",
+                parent=self.root
+            )
+            # close notify socket
+            self.sock_notify.close()
+            self.root.destroy()
+
         return
 
     def listen_notify_task(self, interface_ip):
@@ -990,6 +1012,9 @@ class Revealer2:
             # try to listen to the notify too because if we are trying to change something in another network
             multicast_group = '239.255.255.250'
 
+            # here it is important to avoid getting an old notify reply so we need to reopen notify socket
+            self.socket_notify_reinit()
+
             try:
                 self.sock_notify.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
                                             socket.inet_aton(multicast_group) + socket.inet_aton(ip.ip))
@@ -1013,7 +1038,7 @@ class Revealer2:
         Function for changing device's net settings (IP address and network mask) via multicast. We are using same
         protocol as for SSDP M-SEARCH but setting its aim as desired device's UUID and add new header in format:
 
-            MIPAS: 198.16.1.1;255.255.240.0;\r\n
+            MIPAS: <password>;<dhcp usage flag(0/1)>;<ip-address>;<subnet mask>;<gateway address>;\r\n
 
         (MIPAS - Multicast IP Address Setting)
 
