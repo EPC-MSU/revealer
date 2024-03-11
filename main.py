@@ -26,6 +26,11 @@ from version import Version
 from revealertable import RevealerTable
 from revealerdevice import RevealerDeviceTag
 
+
+RESULT_OK = 0
+RESULT_ERROR = 1
+RESULT_UNKNOWN = 2  # code to indicate unknown result of the action - setting settings via multicast for example
+
 DEFAULT_TEXT_COLOR = "black"
 CURSOR_POINTER = "hand2"
 CURSOR_POINTER_MACOS = "pointinghand"
@@ -639,7 +644,7 @@ class Revealer2:
                         if current_version_array[2] < version_with_settings_array[2]:
                             uuid = ""
 
-        elif data_dict['mipas'] == "True":
+        elif data_dict['mipas'] != "Not provided":
             uuid = data_dict["uuid"]
 
         else:
@@ -790,13 +795,13 @@ class Revealer2:
         words_string = string.split(' ')
         # check that format is correct
         if len(words_string) != 3:
-            warning_line += "SERVER header line with incorrect format: '" +\
+            warning_line += "SERVER header line with incorrect format: '" + \
                             string + "'. Whitespaces shouldn't be used in the OS and product names."
 
             # try to find UPnP field
             index_upnp = string.index("UPnP/")
             if index_upnp < 0:
-                warning_line += "Can't parse SERVER header line without UPnP field at all: '" +\
+                warning_line += "Can't parse SERVER header line without UPnP field at all: '" + \
                                 string + "'."
                 os_version_words = ["Not provided", "Not provided"]
                 server_version_words = ["Not provided", "Not provided"]
@@ -892,6 +897,14 @@ class Revealer2:
                          f"USN: uuid:00000000-0000-0000-0000-000000000000::<device-type>."
                          f"\n{except_info}")
 
+    def _parse_ssdp_header_mipas(self, string, ssdp_dict) -> None:
+        words_string = string.split(':')
+        print("MIPAS string:", string)
+        try:
+            ssdp_dict["mipas"] = words_string[1].replace(' ', '')
+        except IndexError:
+            ssdp_dict["mipas"] = ""
+
     def parse_ssdp_data(self, ssdp_data, addr):
         ssdp_dict = {"server": "Not provided", "version": "Not provided", "location": "Not provided",
                      "ssdp_url": "Not provided", "uuid": "Not provided", "location_url": "Not provided",
@@ -906,7 +919,7 @@ class Revealer2:
                     if words_string[0].lower() \
                             == Revealer2.SSDP_HEADER_SERVER:  # format: SERVER: lwIP/1.4.1 UPnP/2.0 8SMC5-USB/4.7.7
                         # remove header from string
-                        string = string[len(Revealer2.SSDP_HEADER_SERVER)+1:]
+                        string = string[len(Revealer2.SSDP_HEADER_SERVER) + 1:]
                         if len(string) > 0 and string[0] == ' ':
                             string = string[1:]
                         if len(string) > 0:
@@ -922,7 +935,8 @@ class Revealer2:
                             Revealer2.SSDP_HEADER_MIPAS:
                         # MIPAS: - our special field to identifty that this device
                         # supports network settings changing via multicast
-                        ssdp_dict["mipas"] = "True"
+                        self._parse_ssdp_header_mipas(string, ssdp_dict)
+
         except Exception:
             except_info = traceback.format_exc()
             self.print_i(f"Error in parsing {addr} SSDP data:\n{except_info}")
@@ -963,60 +977,105 @@ class Revealer2:
         # start process for changing settings in another thread
         self._ssdp_search_thread.add_task(self.change_ip_multicast_task, uuid, settings_dict)
 
-    def _listen_and_capture_returned_responses_location(self, sock: socket.socket, devices, uuid) -> bool:
+    def _listen_and_capture_returned_responses_location(self, sock: socket.socket, devices, uuid) -> int:
+        result = False
+        response_dict = None
         try:
-            while not self._destroy_flag.is_set():
+            while not self._destroy_flag.is_set() and not result:
                 data, addr = sock.recvfrom(8192)
                 data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
 
+                print(data_dict)
+
                 # if we have not received this location before
-                if not data_dict["location"] in devices and data_dict["uuid"] == uuid:
+                if data_dict["uuid"] == uuid and \
+                        data_dict["mipas"] == "0" or data_dict["mipas"] == "1":
                     devices.add(data_dict["location"])
+                    result = True
+                    response_dict = data_dict
 
         except socket.timeout:
             # try to get notify response from different network
             try:
-                while not self._destroy_flag.is_set():
+                while not self._destroy_flag.is_set() and not result:
                     data_notify, addr_notify = self.sock_notify.recvfrom(8192)
                     data_strings = data_notify.decode('utf-8').split('\r\n')
 
                     if data_strings[0] == 'NOTIFY * HTTP/1.1':
 
                         data_notify_dict = self.parse_ssdp_data(data_notify.decode('utf-8'), addr_notify)
+                        print(data_notify_dict)
 
-                        if not data_notify_dict["location"] in devices and data_notify_dict["uuid"] == uuid:
+                        if data_notify_dict["uuid"] == uuid and \
+                                data_notify_dict["mipas"] == "0" or data_notify_dict["mipas"] == "1":
                             devices.add(data_notify_dict["location"])
+                            result = True
+                            response_dict = data_notify_dict
             except socket.timeout:
                 pass
             except OSError:
                 pass
 
             sock.close()
-            if len(devices) > 0:
-                # We want to break
-                return True
+            if response_dict is not None:
+                # check if it was OK from the server or ERROR
+                if int(response_dict["mipas"]):
+                    return RESULT_OK
+                else:
+                    return RESULT_ERROR
+            else:
+                # we didn't receive a correct answer from the server - it may be just an error
+                # or this device may be using old version
+                # of the firmware / server so it won't add special flag to the MIPAS field... it is error as well
+                log.error("Revealer didn't receive any correct answer from the server. It may be an error with "
+                          "the network, with the server or server may be using old version of "
+                          "the firmware / server so it won' add the necessary field to the answer.")
+                return RESULT_UNKNOWN
             pass
         except OSError:
             pass
-        return False
+        if response_dict is not None:
+            # check if it was OK from the server or ERROR
+            if int(response_dict["mipas"]) == RESULT_OK:
+                return RESULT_OK
+            else:
+                return RESULT_ERROR
+        else:
+            # we didn't receive a correct answer from the server - it may be just an error
+            # or this device may be using old version
+            # of the firmware / server so it won't add special flag to the MIPAS field... it is error as well
+            log.error("Revealer didn't receive any correct answer from the server. It may be an error with "
+                      "the network, with the server or server may be using old version of "
+                      "the firmware / server so it won' add the necessary field to the answer.")
+            return RESULT_UNKNOWN
 
-    def _show_change_settings_info(self, devices):
-        if len(devices) > 0:
+    def _show_change_settings_info(self, result):
+        if result == RESULT_OK:
             mb.showinfo(
                 "Change settings...",
                 "Success.\nNew settings were applied.\nPlease refresh the list of "
                 "the devices by clicking the Search button.",
                 parent=self.root
             )
-        else:
+        elif result == RESULT_ERROR:
             mb.showerror(
                 "Change settings...",
                 "Error.\nSomething went wrong while setting the new settings."
                 "\nPlease check the values inserted and try again.",
                 parent=self.root
             )
+        elif result == RESULT_UNKNOWN:
+            mb.showwarning(
+                "Change settings...",
+                "Warning.\nRevealer didn't receive any valid answers to the changing settings request."
+                "\nThis may be an error or the server version is too old so it doesn't send the answer with the settings "
+                "validation result in the special field. Please try to refresh the list of the devices by clicking the "
+                "Search button to find if device settings were changed or not.",
+                parent=self.root
+            )
 
     def _change_ips_of_adapter(self, adapter, message, devices, uuid):
+        _break = RESULT_UNKNOWN
         for ip in adapter.ips:
             if not isinstance(ip.ip, str):
                 continue
@@ -1052,8 +1111,10 @@ class Revealer2:
                 continue
 
             _break = self._listen_and_capture_returned_responses_location(sock, devices, uuid)
-            if _break:
+            if _break == RESULT_OK or _break == RESULT_ERROR:
                 break
+
+        return _break
 
     def change_ip_multicast_task(self, uuid, settings_dict):
         """
@@ -1084,6 +1145,8 @@ class Revealer2:
             + settings_dict['gateway'] + ';\r\n' \
                                          '\r\n'
 
+        result = RESULT_UNKNOWN
+
         try:
             self._changing_settings.set()
 
@@ -1094,12 +1157,13 @@ class Revealer2:
             for adapter in adapters:
                 if self._destroy_flag.is_set():
                     break
-                if len(devices) > 0:
+                if result == RESULT_OK or result == RESULT_ERROR:
                     break
-                self._change_ips_of_adapter(adapter, message, devices, uuid)
+                result = self._change_ips_of_adapter(adapter, message, devices, uuid)
+                print("result", result)
 
             if not self._destroy_flag.is_set():
-                self._show_change_settings_info(devices)
+                self._show_change_settings_info(result)
 
             self._changing_settings.clear()
         except Exception:
@@ -1655,9 +1719,9 @@ class PropDialog(sd.Dialog):
 
             # if we have link in the label object that we double-clicked -> open it
             if link[0:4] == "http":
-                env_old = fix_env()                 
+                env_old = fix_env()
                 wb.open_new_tab(link)
-                restore_env(env_old)               
+                restore_env(env_old)
         except TclError:
             pass
 

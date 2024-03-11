@@ -726,7 +726,7 @@ class RevealerTable:
         if uuid is None:
             # we add MIPAS field to our PC server or newer version of the firmwares
             # so if we got this - it is our as well
-            if 'mipas' in other_data and other_data['mipas'] == "True":
+            if 'mipas' in other_data and other_data['mipas'] != "Not provided":
                 # our device
                 mipas_support = True
                 type = RevealerDeviceType.OUR
@@ -734,7 +734,7 @@ class RevealerTable:
                 # other device
                 type = RevealerDeviceType.OTHER
         else:
-            if 'mipas' in other_data and other_data['mipas'] == "True":
+            if 'mipas' in other_data and other_data['mipas'] != "Not provided":
                 # our device
                 mipas_support = True
             # our device
