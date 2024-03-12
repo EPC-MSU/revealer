@@ -100,6 +100,9 @@ class Revealer2:
     SSDP_HEADER_USN = "usn"
     SSDP_HEADER_MIPAS = "mipas"
 
+    SSDP_MIPAS_RESULT_OK = "Accepted"
+    SSDP_MIPAS_RESULT_ERROR = "Rejected"
+
     MULTICAST_SSDP_PORT = 1900
 
     # time for redrawing all widgets in milliseconds
@@ -989,7 +992,8 @@ class Revealer2:
 
                 # if we have not received this location before
                 if data_dict["uuid"] == uuid and \
-                        data_dict["mipas"] == "0" or data_dict["mipas"] == "1":
+                        data_dict["mipas"] == self.SSDP_MIPAS_RESULT_OK or \
+                        data_dict["mipas"] == self.SSDP_MIPAS_RESULT_ERROR:
                     devices.add(data_dict["location"])
                     result = True
                     response_dict = data_dict
@@ -1007,7 +1011,8 @@ class Revealer2:
                         print(data_notify_dict)
 
                         if data_notify_dict["uuid"] == uuid and \
-                                data_notify_dict["mipas"] == "0" or data_notify_dict["mipas"] == "1":
+                                data_notify_dict["mipas"] == self.SSDP_MIPAS_RESULT_OK or \
+                                data_notify_dict["mipas"] == self.SSDP_MIPAS_RESULT_ERROR:
                             devices.add(data_notify_dict["location"])
                             result = True
                             response_dict = data_notify_dict
@@ -1019,7 +1024,7 @@ class Revealer2:
             sock.close()
             if response_dict is not None:
                 # check if it was OK from the server or ERROR
-                if int(response_dict["mipas"]):
+                if response_dict["mipas"] == self.SSDP_MIPAS_RESULT_OK:
                     return RESULT_OK
                 else:
                     return RESULT_ERROR
@@ -1036,7 +1041,7 @@ class Revealer2:
             pass
         if response_dict is not None:
             # check if it was OK from the server or ERROR
-            if int(response_dict["mipas"]) == RESULT_OK:
+            if response_dict["mipas"] == self.SSDP_MIPAS_RESULT_OK:
                 return RESULT_OK
             else:
                 return RESULT_ERROR
