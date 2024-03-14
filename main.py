@@ -26,7 +26,6 @@ from version import Version
 from revealertable import RevealerTable
 from revealerdevice import RevealerDeviceTag
 
-
 RESULT_OK = 0
 RESULT_ERROR = 1
 RESULT_UNKNOWN = 2  # code to indicate unknown result of the action - setting settings via multicast for example
@@ -886,8 +885,9 @@ class Revealer2:
             #
             # Nevertheless we are trying to get xml-file for this devices with address
             ssdp_dict['location'] = 'http://' + addr[0] + ":80" + xml_raw
+            ip_address = addr[0]
 
-        ssdp_dict["ssdp_url"] = addr[0]
+        ssdp_dict["ssdp_url"] = ip_address
         ssdp_dict["location_url"] = re.match(URL_REGEX_PORT, value_string.lower()).group()
 
     def _parse_ssdp_header_usn(self, string, ssdp_dict, addr) -> None:
@@ -902,7 +902,6 @@ class Revealer2:
 
     def _parse_ssdp_header_mipas(self, string, ssdp_dict) -> None:
         words_string = string.split(':')
-        print("MIPAS string:", string)
         try:
             ssdp_dict["mipas"] = words_string[1].replace(' ', '')
         except IndexError:
@@ -988,8 +987,6 @@ class Revealer2:
                 data, addr = sock.recvfrom(8192)
                 data_dict = self.parse_ssdp_data(data.decode('utf-8'), addr)
 
-                print(data_dict)
-
                 # if we have not received this location before
                 if data_dict["uuid"] == uuid and \
                         data_dict["mipas"] == self.SSDP_MIPAS_RESULT_OK or \
@@ -1008,7 +1005,6 @@ class Revealer2:
                     if data_strings[0] == 'NOTIFY * HTTP/1.1':
 
                         data_notify_dict = self.parse_ssdp_data(data_notify.decode('utf-8'), addr_notify)
-                        print(data_notify_dict)
 
                         if data_notify_dict["uuid"] == uuid and \
                                 data_notify_dict["mipas"] == self.SSDP_MIPAS_RESULT_OK or \
@@ -1034,7 +1030,7 @@ class Revealer2:
                 # of the firmware / server so it won't add special flag to the MIPAS field... it is error as well
                 log.error("Revealer didn't receive any correct answer from the server. It may be an error with "
                           "the network, with the server or server may be using old version of "
-                          "the firmware / server so it won' add the necessary field to the answer.")
+                          "the firmware / server so it won't add the necessary field to the answer.")
                 return RESULT_UNKNOWN
             pass
         except OSError:
@@ -1073,7 +1069,8 @@ class Revealer2:
             mb.showwarning(
                 "Change settings...",
                 "Warning.\nRevealer didn't receive any valid answers to the changing settings request."
-                "\nThis may be an error or the server version is too old so it doesn't send the answer with the settings "
+                "\nThis may be an error or the server version is too old "
+                "so it doesn't send the answer with the settings "
                 "validation result in the special field. Please try to refresh the list of the devices by clicking the "
                 "Search button to find if device settings were changed or not.",
                 parent=self.root
@@ -1165,7 +1162,6 @@ class Revealer2:
                 if result == RESULT_OK or result == RESULT_ERROR:
                     break
                 result = self._change_ips_of_adapter(adapter, message, devices, uuid)
-                print("result", result)
 
             if not self._destroy_flag.is_set():
                 self._show_change_settings_info(result)
@@ -1287,6 +1283,9 @@ class MIPASDialog(sd.Dialog):
                   "|((255\\.)(255|254|252|248|240|224|192|128|0+)(\\.0+){2})" \
                   "|((255|254|252|248|240|224|192|128|0+)(\\.0+){3}))$"
     IP_ADDRESS_RE = "^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$"
+    # we should check if the IP address is in the valid IP addresses ranges since localhost or 0.0.0.0/8 addresses
+    # is not routed according to RFC to other hosts so we won't be able to see our devices with this addresses
+    FORBIDDEN_IP_ADDRESS_RANGES_RE = "^(0|127)\\."
 
     DEFAULT_ENTRY_IP_TEXT = "192.168.1.1"
     DEFAULT_ENTRY_MASK_TEXT = "255.255.0.0"
@@ -1482,20 +1481,29 @@ class MIPASDialog(sd.Dialog):
         if self.check_format(result_ip['ip'], self.IP_ADDRESS_RE):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
-            warning_msg += "IP Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
+            warning_msg += "IP address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
                            " a number from 0 to 255." \
                            "\nExample: 192.168.1.1."
+        else:
+            # check if ip address requested is from 0.x.x.x or 127.x.x.x subnets - we shouldn't set this ip address
+            # since this ranges are for "this" network
+            if not self.check_format(result_ip['ip'], self.FORBIDDEN_IP_ADDRESS_RANGES_RE):
+                if len(warning_msg) > 0:
+                    warning_msg += "\n\n"
+                warning_msg += "IP address is from one of the forbidden not-routed ranges: 0.0.0.0/8 " \
+                               "or 127.0.0.0/8 - " \
+                               "it won't be applied since it will cause the lost of the server."
         if self.check_format(result_ip['netmask'], self.NET_MASK_RE):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
-            warning_msg += "Network Mask format is incorrect.\nMost likely you need Network Mask 255.255.0.0 or " \
+            warning_msg += "Network mask format is incorrect.\nMost likely you need Network Mask 255.255.0.0 or " \
                            "255.255.255.0.\nIf these aren't the mask you need, check " \
                            "possible network mask values " \
                            "on the Internet and insert it in the format of #.#.#.#."
         if result_ip['gateway'] != '' and self.check_format(result_ip['gateway'], self.IP_ADDRESS_RE):
             if len(warning_msg) > 0:
                 warning_msg += "\n\n"
-            warning_msg += "Gateway Address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
+            warning_msg += "Gateway address format is incorrect.\nRequired format: #.#.#.#, where # stands for" \
                            " a number from 0 to 255." \
                            "\nExample: 192.168.1.1."
         return warning_msg
