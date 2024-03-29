@@ -9,6 +9,7 @@ from tkinter import Tk, Frame, Label, PhotoImage, LabelFrame, TclError, LEFT, En
 from tkinter import ttk, font
 import tkinter.messagebox as mb
 import tkinter.simpledialog as sd
+from errno import ENOPROTOOPT
 
 import socket
 import ifaddr
@@ -209,6 +210,13 @@ class Revealer2:
         # prepare notify socket for correct working
         self.sock_notify = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.sock_notify.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            try:
+                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except socket.error as le:
+                # RHEL6 defines SO_REUSEPORT but it doesn't work
+                if le.errno != ENOPROTOOPT:
+                    raise
         self.sock_notify.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
         try:
             self.sock_notify.bind(('', self.MULTICAST_SSDP_PORT))
