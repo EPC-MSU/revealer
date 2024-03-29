@@ -212,7 +212,7 @@ class Revealer2:
         self.sock_notify.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if hasattr(socket, "SO_REUSEPORT"):
             try:
-                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                self.sock_notify.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             except socket.error as le:
                 # RHEL6 defines SO_REUSEPORT but it doesn't work
                 if le.errno != ENOPROTOOPT:
