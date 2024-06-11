@@ -809,13 +809,16 @@ class Revealer2:
                             string + "'. Whitespaces shouldn't be used in the OS and product names."
 
             # try to find UPnP field
-            index_upnp = string.index("UPnP/")
+            index_upnp = string.index(" UPnP/")
             if index_upnp < 0:
                 warning_line += "Can't parse SERVER header line without UPnP field at all: '" + \
                                 string + "'."
                 os_version_words = ["Not provided", "Not provided"]
                 server_version_words = ["Not provided", "Not provided"]
             else:
+                # we want to remember index if UPnP not whitespace before it
+                index_upnp += 1
+
                 os_fields = string[0:index_upnp]
                 os_version_words = os_fields.split('/')
 
@@ -891,7 +894,7 @@ class Revealer2:
             # See https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf
             # on pages 29 and 41 for LOCATION header format
             #
-            # Nevertheless we are trying to get xml-file for this devices with address
+            # Nevertheless we are trying to get xml-file for these devices with address
             ssdp_dict['location'] = 'http://' + addr[0] + ":80" + xml_raw
             ip_address = addr[0]
 
