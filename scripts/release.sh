@@ -1,3 +1,4 @@
+cd ..
 rm -rf build
 rm -rf dist
 rm -rf release
@@ -17,4 +18,5 @@ mv ./release/main ./release/revealer
 rm -rf build
 rm -rf dist
 rm -rf venv
+cd scripts
 

@@ -5,6 +5,7 @@ echo %target_platform%
 del result.txt
 echo %target_platform%
 
+cd ..
 if exist build rd /S /Q build
 if exist dist rd /S /Q dist
 if exist release rd /S /Q release
@@ -26,4 +27,5 @@ if exist build rd /S /Q build
 if exist dist rd /S /Q dist
 if exist venv rd /S /Q venv
 if exist *.spec del *.spec
+cd scripts
 pause

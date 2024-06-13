@@ -20,12 +20,12 @@ import urllib.request
 
 import ast
 import threading
-from thread import ProcessThread, SSDPSearchThread, ParseDevicesThread
+from src import ProcessThread, SSDPSearchThread, ParseDevicesThread
 import traceback
 
 from version import Version
-from revealertable import RevealerTable
-from revealerdevice import RevealerDeviceTag
+from src import RevealerTable
+from src import RevealerDeviceTag
 
 RESULT_OK = 0
 RESULT_ERROR = 1
