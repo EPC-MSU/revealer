@@ -10,5 +10,4 @@ venv
 release
 # Other
 elements.json
-src/*
 doc/*.png

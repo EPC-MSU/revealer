@@ -6,7 +6,7 @@ from idlelib.tooltip import Hovertip
 import time
 
 import logging as log
-from revealerdevice import RevealerDeviceTag, RevealerDeviceType, RevealerDeviceList, RevealerDeviceRow
+from .revealerdevice import RevealerDeviceTag, RevealerDeviceType, RevealerDeviceList, RevealerDeviceRow
 
 DEFAULT_TEXT_COLOR = "black"
 CURSOR_POINTER = "hand2"
