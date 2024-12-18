@@ -181,6 +181,7 @@ class SSDPSearchThread:
     def __init__(self):
 
         self._threads = []
+        self.notify_threads = []
         self._notify_flag = False
 
     def add_adapters(self, adapters):
@@ -194,6 +195,7 @@ class SSDPSearchThread:
         for adapter in adapters:
             for ip in adapter.ips:
                 self._threads.append(ProcessSSDPThread())
+                self.notify_threads.append(ProcessSSDPThread())
 
     def __len__(self):
         return len(self._threads)
@@ -211,6 +213,9 @@ class SSDPSearchThread:
         for thread in self._threads:
             thread.stop_thread()
 
+        for notify_th in self.notify_threads:
+            notify_th.stop_thread()
+
         self.wait_all_to_end()
 
     def delete_all(self):
@@ -223,6 +228,7 @@ class SSDPSearchThread:
         self.stop_all()
 
         self._threads = []
+        self.notify_threads = []
 
     def wait_all_to_end(self):
         """
@@ -233,6 +239,10 @@ class SSDPSearchThread:
 
         for thread in self._threads:
             while thread.task_in_process():
+                pass
+
+        for notify_th in self.notify_threads:
+            while notify_th.task_in_process():
                 pass
 
     def start_notify(self):
@@ -250,6 +260,10 @@ class SSDPSearchThread:
 
         :return:
         """
+
+        for notify_th in self.notify_threads:
+            notify_th.stop_thread()
+
         self._notify_flag = False
 
     def in_process(self):
@@ -262,6 +276,10 @@ class SSDPSearchThread:
 
         for thread in self._threads:
             if thread.task_in_process():
+                in_process = True
+
+        for notify_th in self.notify_threads:
+            if notify_th.task_in_process():
                 in_process = True
 
         if self._notify_flag:

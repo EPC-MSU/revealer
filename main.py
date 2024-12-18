@@ -250,9 +250,6 @@ class Revealer2:
             # legacy search thread
             self._old_search_thread = ProcessThread()
             self._old_search_thread.start()
-            # thread for listening notify
-            self._notify_search_thread = ProcessThread()
-            self._notify_search_thread.start()
 
             # flag of the GUI destroying, is set than user wants to close the window
             self._destroy_flag = threading.Event()
@@ -376,15 +373,13 @@ class Revealer2:
         self._update_table_thread.stop_thread()
         self._ssdp_search_thread.stop_thread()
         self._old_search_thread.stop_thread()
-        self._notify_search_thread.stop_thread()
 
         self._ssdp_threads.stop_all()
 
         # wait till all threads are stopped
         while self._update_table_thread.task_in_process() or \
                 self._ssdp_search_thread.task_in_process() or \
-                self._old_search_thread.task_in_process() or \
-                self._notify_search_thread.task_in_process():
+                self._old_search_thread.task_in_process():
             pass
 
         # close notify socket
@@ -577,12 +572,18 @@ class Revealer2:
                     if not notify_started:
                         # set notify flag to make that process know that it need to listen answers
                         self._ssdp_threads.start_notify()
-                        # we need to wait a little bit for notify listen to start on
-                        # this ip for correct answers receiving
-                        # See #89128.
-                        self._notify_search_thread.add_task(self.listen_notify_task, ip.ip)
                         notify_started = True
-                        time.sleep(0.05)
+
+                    # listen to notify messages from another network. This should be done from each interface.
+                    # See #109885.
+                    self._ssdp_threads.notify_threads[index].start()
+                    self._ssdp_threads.notify_threads[index].add_task(
+                        self.listen_notify_task, ip.ip, self._ssdp_threads.notify_threads[index].stop_flag
+                    )
+                    # we need to wait a little bit for notify listen to start on
+                    # this ip for correct answers receiving
+                    # See #89128.
+                    time.sleep(0.05)
 
                     # adding search task for this ip on this adapter
                     self._ssdp_threads[index].start()
@@ -747,7 +748,7 @@ class Revealer2:
 
         return
 
-    def listen_notify_task(self, interface_ip):
+    def listen_notify_task(self, interface_ip, timer_stop_event):
         """
         Task for search thread where we listen for all notify messages while we sending m-searches since we add too
         our device option to send notify with answering to the m-search.
@@ -762,12 +763,14 @@ class Revealer2:
         except OSError:
             pass
 
+        timer_stop_event.clear()
+
         self.sock_notify.settimeout(0.1)
 
-        while self._ssdp_threads.in_process() and not self._destroy_flag.is_set():
+        while not self._destroy_flag.is_set() and not timer_stop_event.is_set():
             # listen and capture returned responses
             try:
-                while self._ssdp_threads.in_process() and not self._destroy_flag.is_set():
+                while not self._destroy_flag.is_set() and not timer_stop_event.is_set():
                     data, addr = self.sock_notify.recvfrom(8192)
                     data_strings = data.decode('utf-8').split('\r\n')
 
