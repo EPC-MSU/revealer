@@ -1,11 +1,18 @@
 import os
+import sys
 import re
 import logging as log
 
 import time
 
-from tkinter import Tk, Frame, Label, PhotoImage, LabelFrame, TclError, LEFT, Entry, \
-    Checkbutton, Button, ACTIVE, IntVar, Toplevel
+try:
+    from tkinter import Tk, Frame, Label, PhotoImage, LabelFrame, TclError, LEFT, Entry, \
+        Checkbutton, Button, ACTIVE, IntVar, Toplevel
+except ModuleNotFoundError as err:
+    log.error(f" {err}. On linux-based systems this module should be installed via 'apt install':"
+              f"\n\n  sudo apt install python3-tk\n\nAdditional building requirements "
+              f"and instructions for different OS can be found in the 'BUILD.md' file.")
+    sys.exit(1)
 from tkinter import ttk, font
 import tkinter.messagebox as mb
 import tkinter.simpledialog as sd

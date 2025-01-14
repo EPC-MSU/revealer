@@ -1,11 +1,18 @@
 import os
+import sys
+import logging as log
 from tkinter import ttk, Canvas, HORIZONTAL, VERTICAL, Frame, TclError, Label, font, Button, PhotoImage
 import threading
-from idlelib.tooltip import Hovertip
+try:
+    from idlelib.tooltip import Hovertip
+except ModuleNotFoundError as err:
+    log.error(f"{err}. On linux-based systems this module should be installed via 'apt install':"
+              f"\n\n  sudo apt install idle3\n\nAdditional building requirements "
+              f"and instructions for different OS can be found in the 'BUILD.md' file.")
+    sys.exit(1)
 
 import time
 
-import logging as log
 from .revealerdevice import RevealerDeviceTag, RevealerDeviceType, RevealerDeviceList, RevealerDeviceRow
 
 DEFAULT_TEXT_COLOR = "black"
