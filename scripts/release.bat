@@ -18,7 +18,6 @@ venv\Scripts\pyinstaller main.py --clean --onefile --noconsole ^
 --add-data "resources\*;resources" ^
 --icon resources\appicon.ico
 
-copy README.md dist
 rename dist release
 cd release
 rename main.exe revealer.exe

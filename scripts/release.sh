@@ -12,7 +12,6 @@ python3 -m venv venv
 --add-data "./resources/*:resources" \
 --icon resources/appicon.icns
 
-cp ./README.md ./dist/readme.md
 mv dist release
 mv ./release/main ./release/revealer
 rm -rf build

@@ -15,7 +15,6 @@ cp -R /Library/Frameworks/Python.framework/Versions/3.9/lib/tk8.6/ venv/lib/tk8.
 ./venv/bin/py2applet --make-setup main.py ./resources/appicon.icns
 ./venv/bin/python3 setup.py py2app --resources ./resources 
 
-cp ./README.md ./dist/readme.md
 mv dist release
 mv ./release/main.app ./release/revealer.app
 
