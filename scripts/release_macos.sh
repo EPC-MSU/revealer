@@ -17,6 +17,8 @@ cp -R /Library/Frameworks/Python.framework/Versions/3.9/lib/tk8.6/ venv/lib/tk8.
 
 mv dist release
 mv ./release/main.app ./release/revealer.app
+codesign --force --deep --sign - ./release/revealer.app
+codesign --verify --deep --strict --verbose=2 ./release/revealer.app
 
 rm -rf build
 rm -rf dist
